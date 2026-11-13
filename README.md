@@ -15,6 +15,19 @@ A native Mac front end for the community decompilation, with 60 fps output, cont
 > Unofficial, non-commercial fan project. **No game data included**: you need your own copy of the game.
 > Not affiliated with Capcom, Nintendo or CRI Middleware. See [Legal](#legal).
 
+<p align="center">
+  <img src="docs/screenshots/03-gameplay.jpg" alt="Resident Evil 4 running on a Mac" width="860">
+</p>
+
+## Screenshots
+
+| | |
+|:--:|:--:|
+| <img src="docs/screenshots/01-title-screen.jpg" alt="Title screen"><br>Title screen | <img src="docs/screenshots/02-save-playstation-icons.jpg" alt="PlayStation button icons"><br>PlayStation button icons |
+| <img src="docs/screenshots/04-inventory-hd-textures.jpg" alt="Inventory with HD textures"><br>HD texture pack (RE4 HD Project) | <img src="docs/screenshots/05-settings-graphics.jpg" alt="In-game settings menu"><br>In-game settings menu |
+
+> The settings menu is currently in Spanish. Translations are welcome.
+
 ## Highlights
 
 - 🍎 **Runs on Apple Silicon.** Developed and tested on a Mac with an **M1 Pro and 16 GB of RAM**, where it runs very well. It should run on any Apple Silicon Mac (M1 and later), though I have only tested that one machine.
