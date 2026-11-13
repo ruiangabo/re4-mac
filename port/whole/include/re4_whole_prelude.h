@@ -32,6 +32,9 @@
 #if __SIZEOF_SIZE_T__ == 4
 #define RE4_ASM_NEW "_Znwj"
 #define RE4_ASM_NEW_ARRAY "_Znaj"
+#elif defined(__APPLE__)  /* Mach-O adds "_" to every C symbol, asm labels included */
+#define RE4_ASM_NEW "__Znwm"
+#define RE4_ASM_NEW_ARRAY "__Znam"
 #else
 #define RE4_ASM_NEW "_Znwm"
 #define RE4_ASM_NEW_ARRAY "_Znam"

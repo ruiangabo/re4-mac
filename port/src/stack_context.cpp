@@ -1,3 +1,9 @@
+#ifdef __APPLE__
+// Before every system header: it decides the layout of ucontext_t. Without it the struct has no room
+// for the machine context getcontext writes (__mcontext_data) and every StackContext corrupts the heap.
+#define _XOPEN_SOURCE 600
+#define _DARWIN_C_SOURCE 1
+#endif
 #include "stack_context.h"
 #include <cstdlib>
 #include <cfenv>
@@ -18,11 +24,14 @@
 struct Transfer { void* context; void* data; };
 extern "C" Transfer jump_fcontext(void* to, void* data);
 extern "C" void* make_fcontext(void* stackTop, std::size_t size, void (*entry)(Transfer));
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__APPLE__)
 // Linux x86 test builds of the whole-program port: glibc ucontext.
 #define RE4_UCONTEXT 1
 #include <sys/mman.h>
 #include <ucontext.h>
+#ifdef __APPLE__
+static_assert(sizeof(ucontext_t) > sizeof(struct __darwin_mcontext64), "ucontext_t lacks its machine context");
+#endif
 #include <unistd.h>
 #include <cerrno>
 #include <cstdint>

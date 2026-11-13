@@ -10,6 +10,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 get_filename_component(RE4_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
 
+if(APPLE AND CMAKE_OSX_ARCHITECTURES)
+    # project() resets CMAKE_SYSTEM_PROCESSOR to the host; the target is the one asked for
+    set(CMAKE_SYSTEM_PROCESSOR "${CMAKE_OSX_ARCHITECTURES}")
+endif()
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(i.86|x86)$")
     set(RE4_ARCH i686)
 elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(armv7.*|arm)$")
@@ -478,7 +482,18 @@ add_custom_command(
     VERBATIM)
 add_custom_target(re4_link_plan DEPENDS "${RE4_GEN}/link_plan.stamp")
 
-set(RE4_LINK_FLAGS -fuse-ld=lld -Wl,--no-undefined)
+if(APPLE)
+    # Apple's linker: two-level namespaces make a module bind to its own copies (what -Bsymbolic
+    # does on ELF), unresolved symbols are errors by default, and --wrap is replaced by
+    # runtime/module_heap_apple.cpp.
+    set(RE4_LINK_FLAGS "")
+    set(RE4_USE_LLD "")
+    set(RE4_BSYMBOLIC "")
+else()
+    set(RE4_LINK_FLAGS -fuse-ld=lld -Wl,--no-undefined)
+    set(RE4_USE_LLD -fuse-ld=lld)
+    set(RE4_BSYMBOLIC -Wl,-Bsymbolic)
+endif()
 if(ANDROID)
     # 16 KB pages (newer devices), as the app's own library
     list(APPEND RE4_LINK_FLAGS "-Wl,-z,max-page-size=16384")
@@ -491,6 +506,23 @@ else()  # LP64: size_t = unsigned long ('m')
     set(RE4_MAIN_VER "${CMAKE_CURRENT_SOURCE_DIR}/runtime/libre4_main_lp64.ver")
 endif()
 
+if(APPLE)
+    set(RE4_GAME_HEAP_WRAP "")
+endif()
+
+if(APPLE)
+    # macOS loader (host/loader_macos.c): the small __PAGEZERO that lets the game's address window
+    # exist is only possible on x86_64 (Rosetta); see the comment in the file.
+    add_executable(re4_host_macos host/loader_macos.c)
+    target_link_options(re4_host_macos PRIVATE -Wl,-pagezero_size,0x1000)
+    # the core in a process of its own for the native (arm64) front end: host/macos/viewer_macos.cpp
+    # starts it and talks to it over runtime/re4_core_ipc.h
+    add_executable(re4_coreproc host/coreproc.cpp runtime/core_ipc.cpp)
+    target_include_directories(re4_coreproc PRIVATE runtime)
+    target_compile_features(re4_coreproc PRIVATE cxx_std_17)
+    target_link_options(re4_coreproc PRIVATE -Wl,-pagezero_size,0x1000)
+endif()
+
 # --- libre4_platform ----------------------------------------------------------------
 add_library(re4_platform SHARED
     $<TARGET_OBJECTS:re4_platform_obj>
@@ -501,6 +533,10 @@ add_library(re4_platform SHARED
 add_dependencies(re4_platform re4_link_plan)
 target_include_directories(re4_platform PRIVATE runtime)
 target_link_options(re4_platform PRIVATE ${RE4_LINK_FLAGS})
+if(APPLE)
+    # weak references to symbols of libre4_main / the loader (ELF resolves them lazily)
+    target_link_options(re4_platform PRIVATE "-Wl,-U,_re4_idsys_report" "-Wl,-U,_re4_window_map")
+endif()
 target_link_libraries(re4_platform PRIVATE ${CMAKE_DL_LIBS} m)
 if(ANDROID)
     target_link_libraries(re4_platform PRIVATE log)
@@ -519,8 +555,26 @@ add_library(re4_main SHARED
     "${RE4_GEN}/stubs.cpp")
 add_dependencies(re4_main re4_link_plan)
 target_include_directories(re4_main PRIVATE runtime)
-target_link_options(re4_main PRIVATE ${RE4_LINK_FLAGS}
-    "-Wl,--version-script=${RE4_MAIN_VER}")
+if(APPLE)
+    # the game's own operator new/delete stay local to libre4_main (libre4_main.ver does that on ELF)
+    # Mach-O has no version script: an explicit export list (tools/macho_exports.py) of every external
+    # symbol of main's objects but the game's operator new/delete. (-exported_symbol "*" would also
+    # export those and they would take over the C++ runtime's operators in every other image.)
+    set(RE4_MAIN_EXPORTS "${CMAKE_CURRENT_BINARY_DIR}/libre4_main.exports")
+    add_custom_command(OUTPUT "${RE4_MAIN_EXPORTS}"
+        COMMAND "${Python3_EXECUTABLE}" "${RE4_ROOT}/port/tools/macho_exports.py" "${RE4_MAIN_EXPORTS}"
+            $<TARGET_OBJECTS:re4_main_obj> $<TARGET_OBJECTS:re4_gamehooks_obj> $<TARGET_OBJECTS:re4_glue_obj>
+            $<TARGET_OBJECTS:re4_cri_obj> $<TARGET_OBJECTS:re4_card_obj>
+        DEPENDS re4_main_obj re4_gamehooks_obj re4_glue_obj re4_cri_obj re4_card_obj
+            "${RE4_ROOT}/port/tools/macho_exports.py"
+        COMMAND_EXPAND_LISTS VERBATIM)
+    target_sources(re4_main PRIVATE "${RE4_MAIN_EXPORTS}")
+    target_link_options(re4_main PRIVATE ${RE4_LINK_FLAGS} "-Wl,-exported_symbols_list,${RE4_MAIN_EXPORTS}")
+    set_property(TARGET re4_main APPEND PROPERTY LINK_DEPENDS "${RE4_MAIN_EXPORTS}")
+else()
+    target_link_options(re4_main PRIVATE ${RE4_LINK_FLAGS}
+        "-Wl,--version-script=${RE4_MAIN_VER}")
+endif()
 set_property(TARGET re4_main APPEND PROPERTY LINK_DEPENDS "${RE4_MAIN_VER}")
 target_link_libraries(re4_main PUBLIC re4_platform PRIVATE m)
 
@@ -529,13 +583,19 @@ foreach(mod IN LISTS RE4_MODULES)
     add_library(re4_${mod} SHARED
         $<TARGET_OBJECTS:re4_mod_${mod}_obj>
         runtime/module_crt.cpp
+        $<$<BOOL:${APPLE}>:runtime/module_heap_apple.cpp>
         "${RE4_GEN}/imports/${mod}.cpp"
         "${RE4_GEN}/imports/${mod}.S")
     add_dependencies(re4_${mod} re4_link_plan)
     target_include_directories(re4_${mod} PRIVATE runtime)
     # -Bsymbolic: a module's references bind to its own copies of duplicated units.
     # --wrap: `new`/`delete` of game code use the game heap (runtime/game_heap.cpp).
-    target_link_options(re4_${mod} PRIVATE ${RE4_LINK_FLAGS} -Wl,-Bsymbolic ${RE4_GAME_HEAP_WRAP})
+    target_link_options(re4_${mod} PRIVATE ${RE4_LINK_FLAGS} ${RE4_BSYMBOLIC} ${RE4_GAME_HEAP_WRAP})
+    if(APPLE)
+        # the module's own operator new/delete (module_heap_apple.cpp) stay private to it
+        target_link_options(re4_${mod} PRIVATE "-Wl,-unexported_symbol,__Znwm" "-Wl,-unexported_symbol,__Znam"
+            "-Wl,-unexported_symbol,__ZdlPv" "-Wl,-unexported_symbol,__ZdaPv")
+    endif()
     target_link_libraries(re4_${mod} PRIVATE re4_main)
     set_target_properties(re4_${mod} PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
@@ -553,7 +613,7 @@ add_library(re4test_caller SHARED tests/trampoline_caller.cpp
     "${RE4_GEN}/test/re4test_caller.cpp" "${RE4_GEN}/test/re4test_caller.S")
 target_include_directories(re4test_caller PRIVATE runtime)
 foreach(t re4test_target re4test_caller)
-    target_link_options(${t} PRIVATE ${RE4_LINK_FLAGS} -Wl,-Bsymbolic)
+    target_link_options(${t} PRIVATE ${RE4_LINK_FLAGS} ${RE4_BSYMBOLIC})
     target_link_libraries(${t} PRIVATE re4_main)
     set_target_properties(${t} PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules"
         OUTPUT_NAME re4_${t})
@@ -561,7 +621,7 @@ endforeach()
 
 # --- runtime tests without disc data (re4_host --runtime-test) -------------------------
 add_library(re4test_rel SHARED tests/rel_module.cpp runtime/module_crt.cpp)
-target_link_options(re4test_rel PRIVATE ${RE4_LINK_FLAGS} -Wl,-Bsymbolic)
+target_link_options(re4test_rel PRIVATE ${RE4_LINK_FLAGS} ${RE4_BSYMBOLIC})
 target_link_libraries(re4test_rel PRIVATE re4_main)
 set_target_properties(re4test_rel PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules"
     OUTPUT_NAME re4_re4test_rel)
@@ -600,7 +660,7 @@ if(NOT ANDROID)
         "${CMAKE_CURRENT_SOURCE_DIR}/include")
     target_compile_features(re4_hostlib PRIVATE cxx_std_17)
     add_dependencies(re4_hostlib re4test_rel re4test_caller re4test_target)
-    target_link_options(re4_hostlib PRIVATE -fuse-ld=lld)
+    target_link_options(re4_hostlib PRIVATE ${RE4_USE_LLD})
     target_link_libraries(re4_hostlib PRIVATE re4_main ${CMAKE_DL_LIBS})
     set_target_properties(re4_hostlib PROPERTIES OUTPUT_NAME re4_host)
     add_executable(re4_host host/loader.c)
@@ -611,7 +671,7 @@ if(NOT ANDROID)
     target_compile_options(re4_detmath PRIVATE -fno-builtin -O2)
     target_link_libraries(re4_detmath PRIVATE m)
     add_dependencies(re4_host re4_detmath)
-    target_link_options(re4_host PRIVATE -fuse-ld=lld)
+    target_link_options(re4_host PRIVATE ${RE4_USE_LLD})
     target_link_libraries(re4_host PRIVATE ${CMAKE_DL_LIBS} pthread)
     # the core in a process of its own (port/docs/32bit-kernprozess.md), 32 bit as on
     # Android: re4_coreproc (host/coreproc.cpp, on Android libre4_coreproc.so) and the
@@ -624,7 +684,7 @@ if(NOT ANDROID)
         foreach(t re4_coreproc re4_core_remote_test)
             target_include_directories(${t} PRIVATE runtime)
             target_compile_features(${t} PRIVATE cxx_std_17)
-            target_link_options(${t} PRIVATE -fuse-ld=lld)
+            target_link_options(${t} PRIVATE ${RE4_USE_LLD})
             target_link_libraries(${t} PRIVATE ${CMAKE_DL_LIBS} pthread)
         endforeach()
     endif()
@@ -653,6 +713,6 @@ if(NOT ANDROID)
     add_executable(re4_format_compare tests/format_compare/main.cpp tests/format_compare/app_side.cpp
         $<TARGET_OBJECTS:re4_compare_game_obj>)
     target_include_directories(re4_format_compare PRIVATE tests/format_compare)
-    target_link_options(re4_format_compare PRIVATE -fuse-ld=lld)
+    target_link_options(re4_format_compare PRIVATE ${RE4_USE_LLD})
     target_link_libraries(re4_format_compare PRIVATE re4_app_readers re4_platform)
 endif()

@@ -1449,7 +1449,11 @@ inline void cpuRelax()
 
 void worker()
 {
-    pthread_setname_np(pthread_self(), "re4-gx-verts");  // in profiles (simpleperf) and crash reports
+#ifdef __APPLE__
+    pthread_setname_np("re4-gx-verts");
+#else
+    pthread_setname_np(pthread_self(), "re4-gx-verts");
+#endif  // in profiles (simpleperf) and crash reports
     const int slot = gWorkerTidCount.fetch_add(1);
     if (slot < 8) {
         gWorkerTids[slot].store(re4cpu::ThreadId());

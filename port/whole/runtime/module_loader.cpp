@@ -1,6 +1,11 @@
 // REL module loader: every original REL module is a shared library
 // libre4_<name>.so. Modules call functions of sibling modules through
 // generated trampolines that end up in re4_resolve_import.
+#ifdef __APPLE__
+#define RE4_MODULE_EXT ".dylib"
+#else
+#define RE4_MODULE_EXT ".so"
+#endif
 #include "re4_runtime.h"
 
 #include <dlfcn.h>
@@ -196,11 +201,11 @@ extern "C" void* re4_module_load(const char* name)
     }
     char path[1200];
     if (gModuleDir[0]) {
-        snprintf(path, sizeof(path), "%s/libre4_%s.so", gModuleDir, name);
+        snprintf(path, sizeof(path), "%s/libre4_%s" RE4_MODULE_EXT, gModuleDir, name);
     } else {
         // Android: libraries stay uncompressed in the APK; the linker finds
         // them by name in the app's library path.
-        snprintf(path, sizeof(path), "libre4_%s.so", name);
+        snprintf(path, sizeof(path), "libre4_%s" RE4_MODULE_EXT, name);
     }
     // RTLD_LOCAL: each module keeps its own copies of the units the original
     // RELs duplicated (em_wrap.cpp, st2.cpp, ...), exactly as on the GameCube.

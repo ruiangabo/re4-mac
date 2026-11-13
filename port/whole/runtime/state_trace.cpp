@@ -3150,3 +3150,10 @@ extern "C" void re4_save_item_missing_area(int no, int room, int area, int item)
                 "(item 0x%02x, patch 0179)", no, (unsigned) room, area, (unsigned) item);
     }
 }
+
+#if defined(__APPLE__)
+// Room modules (st1_1 r104/r10b, st1_3, st2_x, st3_x) call Event::FlgOnStatus out of line; event.h has
+// it in-class, so an optimised libre4_main inlines every use and emits no copy. Taking its address
+// emits one (weak), and tools/macho_exports.py exports it.
+__attribute__((used)) static void (Event::*const re4KeepFlgOnStatus)(u32) = &Event::FlgOnStatus;
+#endif

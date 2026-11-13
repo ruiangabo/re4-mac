@@ -221,6 +221,12 @@ struct GxCore {
   // GxRenderer::SetWiden: how much wider the flat draws of the whole screen are drawn (1: as sent)
   std::atomic<float> widen2d{1.0f};
   std::unordered_map<std::uint64_t, Texture> textures;
+  // texture packs read in the background (gGxTextureReady): the ticket of the upload each key waits for
+  std::unordered_map<std::uint64_t, unsigned> replPending;
+  unsigned replTicket = 0;
+  double replWindow = 0, replSpent = 0;  // the time spent putting them in, per 16 ms (DrainReplacements)
+  void DrainReplacements();
+  void PutReplacement(unsigned id, const struct GxTexReplacement &rep);
   std::unordered_map<std::uint32_t, Copy> copies;  // by destination address
   std::unordered_map<std::uint64_t, Texture> paletted; // copies read through a palette
   bool dofStrong = false;
@@ -681,6 +687,8 @@ struct GxCore {
   // texels, the end (the levels that came); the clear after a copy; the sampler of a texture map's mode registers
   virtual unsigned BeginTexture(unsigned width, unsigned height, unsigned levels) = 0;
   virtual void TextureLevel(unsigned id, unsigned level, unsigned width, unsigned height, const std::uint8_t *rgba) = 0;
+  // a level in BC1 (kind 1) or BC3 (kind 3) blocks (texture packs; only where gGxTextureBc)
+  virtual void CompressedLevel(unsigned, unsigned, unsigned, unsigned, unsigned, const std::uint8_t *, std::size_t) {}
   virtual void EndTexture(unsigned id, unsigned levels) = 0;
   virtual void ClearRect(const GxClearRect &r) = 0;
   GxSamplerDesc SamplerFor(std::uint32_t mode0, std::uint32_t mode1, unsigned levels, bool point) const;

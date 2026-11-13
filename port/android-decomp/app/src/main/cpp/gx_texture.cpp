@@ -109,6 +109,11 @@ std::size_t GxTextureLevelBytes(unsigned format, unsigned width, unsigned height
   return static_cast<std::size_t>((width + t.w - 1) / t.w) * ((height + t.h - 1) / t.h) * t.bytes;
 }
 
+bool (*gGxTextureReplace)(const GxTexHookInfo &, GxTexReplacement *) = nullptr;
+void (*gGxTextureDump)(const GxTexHookInfo &, const std::uint8_t *) = nullptr;
+bool (*gGxTextureReady)(GxTexReady *) = nullptr;
+bool gGxTextureBc = false;
+
 bool GxDecodeTexture(const std::uint8_t *data, std::size_t bytes, unsigned format, unsigned width,
                      unsigned height, const std::uint8_t *tlut, unsigned tlutEntries,
                      unsigned tlutFormat, std::vector<std::uint8_t> &rgba) {

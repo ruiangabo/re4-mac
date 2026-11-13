@@ -5,7 +5,13 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#if defined(__linux__)
 #include <linux/futex.h>
+#endif
+#if defined(__APPLE__)
+#include <os/os_sync_wait_on_address.h>
+#include <stdio.h>
+#endif
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
@@ -26,6 +32,10 @@
 #elif defined(__aarch64__)
 #define SYS_memfd_create 279
 #endif
+#endif
+
+#ifndef MSG_CMSG_CLOEXEC
+#define MSG_CMSG_CLOEXEC 0
 #endif
 
 namespace re4ipc {
@@ -89,6 +99,23 @@ void controlInit(Control* c, uint32_t pid)
 
 int shmCreate(const char* name, size_t size)
 {
+#if defined(__APPLE__)
+    // POSIX shared memory, unlinked at once: only the descriptor (passed over the socket) keeps it
+    static int serial = 0;
+    char unique[31];
+    snprintf(unique, sizeof(unique), "/re4.%d.%d", (int) getpid(), serial++);
+    int fd = shm_open(unique, O_RDWR | O_CREAT | O_EXCL, 0600);
+    if (fd >= 0) {
+        shm_unlink(unique);
+        fcntl(fd, F_SETFD, FD_CLOEXEC);
+        if (ftruncate(fd, (off_t) size) == 0) {
+            return fd;
+        }
+        close(fd);
+    }
+    (void) name;
+    return -1;
+#else
 #if defined(SYS_memfd_create)
     int fd = (int) syscall(SYS_memfd_create, name, 1u /* MFD_CLOEXEC */);
     if (fd >= 0) {
@@ -115,6 +142,7 @@ int shmCreate(const char* name, size_t size)
     (void) name;
     (void) size;
     return -1;
+#endif
 }
 
 void* shmMap(int fd, size_t size)
@@ -126,16 +154,47 @@ void* shmMap(int fd, size_t size)
 void ring(Bell& bell)
 {
     bell.seq.fetch_add(1, std::memory_order_release);
+#if defined(__APPLE__)
+    // the kernel's futex of macOS 14.4+, across processes (x86_64 under Rosetta and arm64 share the page)
+    os_sync_wake_by_address_all(reinterpret_cast<void*>(&bell.seq), sizeof(uint32_t), OS_SYNC_WAKE_BY_ADDRESS_SHARED);
+#else
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(&bell.seq), FUTEX_WAKE, 1, nullptr, nullptr, 0);
+#endif
 }
 
 void waitBell(Bell& bell, uint32_t seen, int timeoutMs)
 {
+#if defined(__APPLE__)
+    // a short spin first (the other side often answers within microseconds), then sleep in the kernel
+    for (int spin = 0; spin < 200; spin++) {
+        if (bell.seq.load(std::memory_order_acquire) != seen) {
+            return;
+        }
+    }
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    while (bell.seq.load(std::memory_order_acquire) == seen) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        const int64_t left = (int64_t) timeoutMs * 1000000 -
+                             ((int64_t) (now.tv_sec - start.tv_sec) * 1000000000 + (now.tv_nsec - start.tv_nsec));
+        if (left <= 0) {
+            return;
+        }
+        int r = os_sync_wait_on_address_with_timeout(reinterpret_cast<void*>(&bell.seq), seen, sizeof(uint32_t),
+                                                     OS_SYNC_WAIT_ON_ADDRESS_SHARED, OS_CLOCK_MACH_ABSOLUTE_TIME,
+                                                     (uint64_t) left);
+        if (r < 0 && errno == ETIMEDOUT) {
+            return;
+        }
+    }
+#else
     // the kernel's timespec of this program width (time32 on 32 bit, SYS_futex)
     struct {
         long sec, nsec;
     } t = {timeoutMs / 1000, (long) (timeoutMs % 1000) * 1000000L};
     syscall(SYS_futex, reinterpret_cast<uint32_t*>(&bell.seq), FUTEX_WAIT, seen, &t, nullptr, 0);
+#endif
 }
 
 bool sendMsg(int sock, const MsgHeader& header, const void* payload, int fd)

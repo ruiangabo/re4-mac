@@ -2,6 +2,8 @@
 
 # CubeEvil4
 
+> **macOS (Apple Silicon) fork:** an experimental hybrid port (native arm64 front end + game core under Rosetta 2) lives in this fork. See [MACOS.md](MACOS.md). Everything below is the upstream Android README.
+
 ![Beta](https://img.shields.io/badge/Status-Beta-E67E22)
 ![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 ![ARM 32/64-bit](https://img.shields.io/badge/ARM-32%2F64--bit-0091BD?logo=arm&logoColor=white)

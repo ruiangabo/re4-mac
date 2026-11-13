@@ -9,8 +9,25 @@
 #pragma once
 
 #include <dlfcn.h>
+#ifdef __APPLE__
+#include <pthread.h>
+#endif
 #include <errno.h>
 #include <sched.h>
+#ifdef __APPLE__
+// macOS has no CPU affinity: a minimal cpu_set_t, and sched_*affinity that always fail
+// (every caller already treats failure as "cannot pin", as on a phone that denies it).
+#include <sys/types.h>
+#define CPU_SETSIZE 1024
+struct cpu_set_t { unsigned long bits[CPU_SETSIZE / (8 * sizeof(unsigned long))]; };
+#define CPU_ZERO(s) memset((s), 0, sizeof(cpu_set_t))
+#define CPU_SET(c, s) ((s)->bits[(c) / (8 * sizeof(unsigned long))] |= 1ul << ((c) % (8 * sizeof(unsigned long))))
+#define CPU_ISSET(c, s) (((s)->bits[(c) / (8 * sizeof(unsigned long))] >> ((c) % (8 * sizeof(unsigned long)))) & 1ul)
+#define CPU_EQUAL(a, b) (memcmp((a), (b), sizeof(cpu_set_t)) == 0)
+static inline int sched_getaffinity(pid_t, size_t, cpu_set_t*) { return -1; }
+static inline int sched_setaffinity(pid_t, size_t, const cpu_set_t*) { return -1; }
+static inline int sched_getcpu() { return 0; }
+#endif
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -195,7 +212,11 @@ struct ThreadUse {
 // the calling thread's id (as the system's tools and the performance hint name it)
 inline int ThreadId()
 {
+    #ifdef __APPLE__
+    return static_cast<int>(pthread_mach_thread_np(pthread_self()));
+#else
     return static_cast<int>(syscall(SYS_gettid));
+#endif
 }
 
 // The cores KeepOffSlowCores gave the calling thread (KeepOnFastCores puts it back there).

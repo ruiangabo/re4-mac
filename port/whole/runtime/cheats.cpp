@@ -76,7 +76,6 @@
 #include "puzzle.h"
 #include <dolphin/dvd.h>
 
-#include <algorithm>
 
 #include <atomic>
 #include <stdint.h>
@@ -231,7 +230,7 @@ int giveBow()
     const int had = arrows();
     int have = had;
     while (have < kArrowsGiven) {
-        const int more = std::min(kArrowSlot, kArrowsGiven - have);
+        const int more = ((int) kArrowSlot < kArrowsGiven - have ? (int) kArrowSlot : kArrowsGiven - have);
         if (!putIn(kArrows, (u16) more)) {
             re4_log("cheat: Krauser's bow: no room in the case for more arrows (r%03x)", (unsigned) pG->room_id);
             break;

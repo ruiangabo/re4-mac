@@ -852,6 +852,10 @@ struct GlRenderer final : GxCore {
   void TimerInit() {
     const char *ext = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
     timerOn = ext && std::strstr(ext, "GL_EXT_disjoint_timer_query");
+    // texture packs may come as BC1/BC3 (texture_pack: compressed in its workers, less to upload and to hold)
+    gGxTextureBc = ext && (std::strstr(ext, "GL_EXT_texture_compression_s3tc") || std::strstr(ext, "GL_S3_s3tc"));
+    if (getenv("RE4_TEX_RGBA"))
+      gGxTextureBc = false;
     // Mali drivers crash in the timer queries (moto g72, Mali-G57 MC2 / MT6789, 0.40-0.41.3:
     // SIGSEGV at address 0 in libGLES_mali.so under TimerPool::Collect, again and again after
     // minutes to an hour of play); the GPU time is a diagnosis only, so not there
@@ -2816,6 +2820,12 @@ struct GlRenderer final : GxCore {
   void TextureLevel(unsigned, unsigned level, unsigned w, unsigned h, const std::uint8_t *rgba) override {
     glTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), GL_RGBA8, static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+  }
+  void CompressedLevel(unsigned, unsigned level, unsigned w, unsigned h, unsigned kind, const std::uint8_t *data,
+                       std::size_t bytes) override {
+    // GL_COMPRESSED_RGB_S3TC_DXT1_EXT, GL_COMPRESSED_RGBA_S3TC_DXT5_EXT
+    glCompressedTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), kind == 1 ? 0x83F0 : 0x83F3,
+                           static_cast<GLsizei>(w), static_cast<GLsizei>(h), 0, static_cast<GLsizei>(bytes), data);
   }
   void EndTexture(unsigned, unsigned levels) override {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(levels - 1));

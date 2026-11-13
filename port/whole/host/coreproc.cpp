@@ -36,6 +36,10 @@
 // RE4_CORE_IPC_SEGMENT=N starts the GX memory pieces at N bytes, and on Linux
 // RE4_CORE_TEST_ENTRY=remote|crash starts the test entry of libre4_host.so
 // (tests/core_remote_probe.cpp) instead of the game.
+#ifdef __APPLE__
+#define _XOPEN_SOURCE 600
+#define _DARWIN_C_SOURCE 1
+#endif
 #include "re4_card_files.h"
 #include "re4_core.h"
 #include "re4_core_ipc.h"
@@ -56,7 +60,9 @@
 #include <string>
 #include <string.h>
 #include <sys/mman.h>
+#if defined(__linux__)
 #include <sys/prctl.h>
+#endif
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
@@ -69,8 +75,49 @@
 #if defined(__aarch64__)
 #include <android/dlext.h>
 #endif
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#include <pthread.h>
+// as host/loader_macos.c: every free range below 0x83000000 held (x86_64, -pagezero_size 0x1000);
+// the libraries and the game's stacks then land in its window, MEM1 is taken over by re4_mem1_init
+static void reserveLowMemory()
+{
+    mach_vm_address_t addr = 0x1000;
+    const unsigned long limit = 0x83000000ul;
+    while (addr < limit) {
+        mach_vm_address_t at = addr;
+        mach_vm_size_t size = 0;
+        vm_region_basic_info_data_64_t info;
+        mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+        mach_port_t object;
+        kern_return_t kr = mach_vm_region(mach_task_self(), &at, &size, VM_REGION_BASIC_INFO_64,
+                                          (vm_region_info_t) &info, &count, &object);
+        unsigned long end = (kr == KERN_SUCCESS && at < limit) ? at : limit;
+        if (end > addr) {
+            mmap((void*) addr, end - addr, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_FIXED | MAP_NORESERVE, -1, 0);
+        }
+        if (kr != KERN_SUCCESS) {
+            break;
+        }
+        addr = at + size;
+    }
+    setenv("RE4_MEM1_PLACEHOLDER", "1", 1);
+}
 #else
 #include "low_memory.h"
+#endif
+
+#if defined(__APPLE__)
+static int re4Tid() { return (int) pthread_mach_thread_np(pthread_self()); }
+#define RE4_LIB(n) n ".dylib"
+// the modules bind weak definitions (inline functions) to libre4_main: only a global image takes part
+#define RE4_MAIN_SCOPE RTLD_GLOBAL
+#else
+static int re4Tid() { return re4Tid(); }
+#define RE4_LIB(n) n ".so"
+#define RE4_MAIN_SCOPE RTLD_LOCAL
 #endif
 
 using namespace re4ipc;
@@ -261,7 +308,12 @@ void crashContext(void* context)
         remote[c].iov_base = (void*) (sp + c * sizeof(word) / 16);
         remote[c].iov_len = sizeof(word) / 16;
     }
+#if defined(__APPLE__)
+    const ssize_t got = 0;
+    (void) local;
+#else
     const ssize_t got = (ssize_t) syscall(SYS_process_vm_readv, getpid(), &local, 1, remote, 16, 0);
+#endif
     const int words = got > 0 ? (int) (got / sizeof(uintptr_t)) : 0;
     int found = 0;
     for (int i = 0; i < words && found < 24; i++) {
@@ -282,7 +334,7 @@ void onCrash(int sig, siginfo_t* info, void* context)
     if (!inside) {
         inside = 1;
         crashLine("crash (core process): signal %d (%s), fault address %p, thread %d", sig, strsignal(sig),
-                  info ? info->si_addr : nullptr, (int) syscall(SYS_gettid));
+                  info ? info->si_addr : nullptr, re4Tid());
         crashContext(context);
         const int fd = gCrashFd.load();
         if (fd >= 0) {
@@ -300,7 +352,7 @@ void onCrash(int sig, siginfo_t* info, void* context)
 
 void onHangSample(int, siginfo_t*, void* context)
 {
-    crashLine("hang: the game thread (%d) is at", (int) syscall(SYS_gettid));
+    crashLine("hang: the game thread (%d) is at", re4Tid());
     crashContext(context);
 }
 
@@ -331,7 +383,9 @@ void reportHang(int seconds)
         return;
     }
     for (int i = 0; i < 3; i++) {
+#if !defined(__APPLE__)
         syscall(SYS_tgkill, getpid(), tid, SIGUSR2);
+#endif
         usleep(200000);
     }
     const int fd = gCrashFd.load();
@@ -617,7 +671,7 @@ void audioThread()
 {
     Control* c = gControl;
     // the sound thread of the app plays at THREAD_PRIORITY_AUDIO; this one feeds it
-    if (setpriority(PRIO_PROCESS, (id_t) syscall(SYS_gettid), -16) != 0) {
+    if (setpriority(PRIO_PROCESS, (id_t) 0, -16) != 0) {
         say("sound thread: priority not raised (%s)", strerror(errno));
     }
     const uint32_t channels = c->audioChannels;
@@ -746,9 +800,9 @@ bool loadCore(std::string& problem)
     }
 #elif defined(__ANDROID__)
     // by name from the app's library folder (LD_LIBRARY_PATH); RTLD_LOCAL as in the app
-    core.main = dlopen("libre4_main.so", RTLD_NOW | RTLD_LOCAL);
+    core.main = dlopen(RE4_LIB("libre4_main"), RTLD_NOW | RE4_MAIN_SCOPE);
 #else
-    core.main = dlopen((gExeDir + "/libre4_main.so").c_str(), RTLD_NOW | RTLD_LOCAL);
+    core.main = dlopen((gExeDir + "/" RE4_LIB("libre4_main")).c_str(), RTLD_NOW | RE4_MAIN_SCOPE);
 #endif
     if (!core.main) {
         const char* e = dlerror();
@@ -1107,13 +1161,20 @@ int main(int argc, char** argv)
             parent = atol(argv[i + 1]);
         }
     }
+#if defined(__linux__)
     prctl(PR_SET_PDEATHSIG, SIGKILL);
+#endif
     if (parent > 0 && getppid() != (pid_t) parent) {
         _exit(0);
     }
-    prctl(PR_SET_NAME, "re4-core");
     char exe[PATH_MAX];
+#if defined(__APPLE__)
+    uint32_t exeSize = sizeof(exe);
+    const ssize_t len = _NSGetExecutablePath(exe, &exeSize) == 0 ? (ssize_t) strlen(exe) : -1;
+#else
+    prctl(PR_SET_NAME, "re4-core");
     const ssize_t len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+#endif
     if (len > 0) {
         exe[len] = 0;
         gExeDir = exe;

@@ -25,7 +25,12 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#else
 #include <link.h>
+#endif
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
@@ -749,6 +754,31 @@ int re4_valid_port_ptr(const void* p)
         uintptr_t address, begin, end;
         bool found;
     } search = {a, 0, 0, false};
+#ifdef __APPLE__
+    for (uint32_t i = 0; i < _dyld_image_count() && !search.found; i++) {
+        const char* name = _dyld_get_image_name(i);
+        if (!name || !strstr(name, "libre4_")) {
+            continue;
+        }
+        const struct mach_header_64* mh = (const struct mach_header_64*) _dyld_get_image_header(i);
+        intptr_t slide = _dyld_get_image_vmaddr_slide(i);
+        const uint8_t* lc = (const uint8_t*) (mh + 1);
+        for (uint32_t c = 0; c < mh->ncmds; c++) {
+            const struct load_command* l = (const struct load_command*) lc;
+            if (l->cmd == LC_SEGMENT_64) {
+                const struct segment_command_64* sg = (const struct segment_command_64*) l;
+                uintptr_t b = (uintptr_t) (sg->vmaddr + slide);
+                if (sg->vmsize && (sg->initprot & VM_PROT_READ) && search.address >= b && search.address < b + sg->vmsize) {
+                    search.begin = b;
+                    search.end = b + sg->vmsize;
+                    search.found = true;
+                    break;
+                }
+            }
+            lc += l->cmdsize;
+        }
+    }
+#else
     dl_iterate_phdr(
         [](struct dl_phdr_info* info, size_t, void* data) -> int {
             Search* s = (Search*) data;
@@ -775,6 +805,7 @@ int re4_valid_port_ptr(const void* p)
             return 0;
         },
         &search);
+#endif
     if (!search.found) {
         return 0;
     }

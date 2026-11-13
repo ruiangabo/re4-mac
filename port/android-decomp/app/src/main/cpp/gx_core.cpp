@@ -1,5 +1,6 @@
 // The GX emulation both graphics APIs share (gx_core.h; port/docs/vulkan-bauplan.md, E1): registers, shader keys,
 // uniform block contents, in-between pictures (60 FPS), merged draw calls, the lens flares' logic.
+#include <chrono>
 #include "gx_core.h"
 
 #include "gx_texture.h"
@@ -2185,6 +2186,8 @@ void GxCore::BindTexture(const Re4GxTexture &t, const Re4GxChunk &chunk) {
   boundKey[map] = key;
   if (key == 0)
     return;
+  if (!replPending.empty() && gGxTextureReady)
+    DrainReplacements();
   // a texture the in-between pass uploaded already (the same key: the same texels)
   if (t.dataBytes && !(skipInterpUploads && interpUploads.count(key)))
     Upload(t, chunk);
@@ -2589,6 +2592,41 @@ void GxCore::Upload(const Re4GxTexture &t, const Re4GxChunk &chunk) {
   }
   unsigned w = t.width, h = t.height, levels = 0;
   std::vector<std::uint8_t> &rgba = decoded;
+  // a texture pack's picture instead (sampled by normalized coordinates: any size; mapSize stays the GX one)
+  if (gGxTextureReplace || gGxTextureDump) {
+    GxTexHookInfo info;
+    info.data = data;
+    info.bytes = std::min(left, GxTextureLevelBytes(t.format, w, h));
+    info.format = t.format;
+    info.width = w;
+    info.height = h;
+    info.levels = tex.levels;
+    info.tlut = palette;
+    info.tlutEntries = entries;
+    info.tlutFormat = (t.tlut >> 10) & 3;
+    info.key = key;
+    info.ticket = ++replTicket;
+    replPending.erase(key);  // new texels: what was being read for the old ones is not wanted
+    GxTexReplacement rep;
+    if (gGxTextureReplace && info.bytes == GxTextureLevelBytes(t.format, w, h) && gGxTextureReplace(info, &rep) &&
+        !rep.levels.empty()) {
+      PutReplacement(tex.id, rep);
+      tex.levels = static_cast<unsigned>(rep.levels.size());
+      EndTexture(tex.id, tex.levels);
+      auto old = textures.find(key);
+      if (old != textures.end())
+        DeleteTexture(old->second.id);
+      textures[key] = tex;
+      stats.textures++;
+      return;
+    }
+    if (rep.pending)
+      replPending[key] = info.ticket;
+    if (gGxTextureDump && info.bytes == GxTextureLevelBytes(t.format, w, h)) {
+      GxDecodeTexture(data, info.bytes, t.format, w, h, palette, entries, info.tlutFormat, rgba);
+      gGxTextureDump(info, rgba.data());
+    }
+  }
   for (unsigned l = 0; l < tex.levels; l++) {
     const std::size_t bytes = GxTextureLevelBytes(t.format, w, h);
     if (bytes > left)
@@ -2608,6 +2646,56 @@ void GxCore::Upload(const Re4GxTexture &t, const Re4GxChunk &chunk) {
     DeleteTexture(old->second.id);
   textures[key] = tex;
   stats.textures++;
+}
+
+void GxCore::PutReplacement(unsigned id, const GxTexReplacement &rep) {
+  for (unsigned l = 0; l < rep.levels.size(); l++) {
+    if (rep.compressed)
+      CompressedLevel(id, l, rep.sizes[l].first, rep.sizes[l].second, rep.compressed, rep.levels[l].data(),
+                      rep.levels[l].size());
+    else
+      TextureLevel(id, l, rep.sizes[l].first, rep.sizes[l].second, rep.levels[l].data());
+  }
+}
+
+// The texture packs' pictures read in the background since: each replaces the texture its key still has (the
+// original until now; a ticket of an older upload of the key is dropped), at most ~3 ms of uploads per 16 ms.
+void GxCore::DrainReplacements() {
+  using clock = std::chrono::steady_clock;
+  const double now = std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
+  if (now - replWindow > 16.0) {
+    replWindow = now;
+    replSpent = 0;
+  }
+  if (replSpent > 3.0)
+    return;
+  const auto t0 = clock::now();
+  GxTexReady r;
+  while (gGxTextureReady(&r)) {
+    auto p = replPending.find(r.key);
+    if (p == replPending.end() || p->second != r.ticket || r.rep.levels.empty())
+      continue;
+    replPending.erase(p);
+    auto it = textures.find(r.key);
+    if (it == textures.end())
+      continue;
+    Touched();
+    Texture tex = it->second;
+    const unsigned n = static_cast<unsigned>(r.rep.levels.size());
+    tex.id = BeginTexture(tex.width, tex.height, n);
+    PutReplacement(tex.id, r.rep);
+    tex.levels = n;
+    EndTexture(tex.id, n);
+    DeleteTexture(it->second.id);
+    it->second = tex;
+    stats.textures++;
+    if (getenv("RE4_TEX_TIMING"))
+      fprintf(stderr, "[tex] upload %ux%u x%u levels: %.1f ms total\n", r.rep.sizes[0].first, r.rep.sizes[0].second, n,
+              std::chrono::duration<double, std::milli>(clock::now() - t0).count());
+    if (std::chrono::duration<double, std::milli>(clock::now() - t0).count() + replSpent > 3.0)
+      break;
+  }
+  replSpent += std::chrono::duration<double, std::milli>(clock::now() - t0).count();
 }
 
 GxSamplerDesc GxCore::SamplerFor(std::uint32_t mode0, std::uint32_t mode1, unsigned levels, bool point) const {

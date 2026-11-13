@@ -15,7 +15,15 @@
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
+#endif
 
+#ifdef __APPLE__
+// no MAP_FIXED_NOREPLACE: callers check that the range is free first (game_window.cpp findFree, the loader)
+#define MAP_FIXED_NOREPLACE MAP_FIXED
+#endif
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000
 #endif
@@ -33,6 +41,23 @@ unsigned long gCursor = kWindowStart;
 // (from /proc/self/maps, sorted by address).
 unsigned long findFree(unsigned long from, unsigned long size)
 {
+#ifdef __APPLE__
+    // no /proc: walk the task's regions (the loader reserved everything below 0x83000000 itself)
+    unsigned long at = from;
+    while (at + size <= kWindowEnd) {
+        mach_vm_address_t r = at;
+        mach_vm_size_t len = 0;
+        vm_region_basic_info_data_64_t info;
+        mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+        mach_port_t object;
+        if (mach_vm_region(mach_task_self(), &r, &len, VM_REGION_BASIC_INFO_64, (vm_region_info_t) &info,
+                           &count, &object) != KERN_SUCCESS || r >= at + size) {
+            return at;  // nothing mapped in [at, at + size)
+        }
+        at = r + len;  // overlaps: the range starts after this mapping at the earliest
+    }
+    return 0;
+#else
     FILE* f = fopen("/proc/self/maps", "r");
     if (!f) {
         return 0;
@@ -54,6 +79,7 @@ unsigned long findFree(unsigned long from, unsigned long size)
     }
     fclose(f);
     return at + size <= kWindowEnd ? at : 0;
+#endif
 }
 
 }  // namespace

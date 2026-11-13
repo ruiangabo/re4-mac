@@ -29,6 +29,15 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Mach-O prefixes every C symbol with "_"; the plan works on plain names and adds it where an
+# assembler label or an __asm__ name is written.
+DARWIN = sys.platform == "darwin"
+SYM = "_" if DARWIN else ""
+
+
+def plain(name: str) -> str:
+    return name[1:] if DARWIN and name.startswith("_") else name
+
 SYMBOLS_TXT = ROOT / "config" / "G4BE08" / "symbols.txt"
 CALL_RELOCS = {"R_386_PLT32", "R_386_PC32", "R_X86_64_PLT32", "R_X86_64_PC32", "R_ARM_CALL", "R_ARM_JUMP24", "R_ARM_THM_CALL",
                "R_ARM_THM_JUMP24", "R_AARCH64_CALL26", "R_AARCH64_JUMP26"}
@@ -41,20 +50,31 @@ def nm_symbols(objects: list) -> tuple:
         out = subprocess.run(["nm", "-A", *objects[chunk:chunk + 200]],
                              capture_output=True, text=True, check=True).stdout
         for line in out.splitlines():
-            # "<object>:<address> <type> <name>"; undefined entries have no address
+            # ELF: "<object>:<address> <type> <name>"; Mach-O: "<object>: <address> <type> <name>";
+            # undefined entries have no address
             parts = line.split()
-            if len(parts) != 3:
+            if len(parts) < 3 or len(parts[-2]) != 1:
                 continue
-            if parts[1] == "U":
-                undefined.add(parts[2])
-            elif parts[1] in "TDBRVWGSCu":
-                defined.setdefault(parts[2], parts[1])
+            name = plain(parts[-1])
+            if parts[-2] == "U":
+                undefined.add(name)
+            elif parts[-2] in "TDBRVWGSCu":
+                defined.setdefault(name, parts[-2])
     return defined, undefined - set(defined)
 
 
 def call_targets(objects: list) -> set:
     """Symbols that are the target of at least one call relocation."""
     called = set()
+    if DARWIN:
+        for chunk in range(0, len(objects), 200):
+            out = subprocess.run(["objdump", "-r", *objects[chunk:chunk + 200]],
+                                 capture_output=True, text=True).stdout
+            for line in out.splitlines():
+                parts = line.split()
+                if len(parts) >= 3 and parts[1] in ("X86_64_RELOC_BRANCH", "ARM64_RELOC_BRANCH26"):
+                    called.add(plain(parts[2]))
+        return called
     for chunk in range(0, len(objects), 200):
         out = subprocess.run(["readelf", "-rW", *objects[chunk:chunk + 200]],
                              capture_output=True, text=True).stdout
@@ -67,6 +87,22 @@ def call_targets(objects: list) -> set:
 
 def trial_link(cxx: list, objects: list) -> list:
     """Symbols the toolchain's runtime libraries cannot provide either."""
+    if DARWIN:
+        # Apple's linker rejects duplicate definitions, which the ELF trial link allows: ask it only
+        # about the names nobody defines, taken as the addresses of a throw-away source file.
+        defined, undefined = nm_symbols(objects)
+        wanted = sorted(undefined - set(defined) - {"kRe4Modules", "re4_stub_count"})
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "probe.c"
+            lines = [f'extern char s{i}[] __asm__({c_string(SYM + n)});' for i, n in enumerate(wanted)]
+            lines.append("void *probe_table[] = {" + ", ".join(f"s{i}" for i in range(len(wanted))) + "};")
+            src.write_text("\n".join(lines) + "\n")
+            cmd = [*cxx, "-dynamiclib", "-o", str(Path(tmp) / "probe.dylib"), str(src), "-Wl,-undefined,error", "-lm", "-lc++"]
+            out = subprocess.run(cmd, capture_output=True, text=True)
+        missing = {plain(m) for m in re.findall(r'^\s+"([^"]+)", referenced from', out.stderr, re.M)}
+        if out.returncode != 0 and not missing:
+            sys.exit(f"trial link failed for another reason:\n{out.stderr[-3000:]}")
+        return sorted(missing)
     with tempfile.TemporaryDirectory() as tmp:
         rsp = Path(tmp) / "objects.rsp"
         rsp.write_text("\n".join(objects))
@@ -120,14 +156,14 @@ def stubs_source(funcs: list, datas: list, sizes: dict) -> str:
     lines += [f"    {c_string(p)}," for p in plain[:len(funcs)]] or ["    \"\","]
     lines += ["};", f"static unsigned char kStubSeen[{max(len(funcs), 1)}];", ""]
     for i, name in enumerate(funcs):
-        lines.append(f"extern \"C\" long long re4_stub_{i}() __asm__({c_string(name)});")
+        lines.append(f"extern \"C\" long long re4_stub_{i}() __asm__({c_string(SYM + name)});")
         lines.append(f"extern \"C\" long long re4_stub_{i}() {{ re4_stub_hit(kStubNames, kStubSeen, {i}); return 0; }}")
     lines.append("")
     for i, name in enumerate(datas):
         size = max(sizes.get(name, 0), 64) if sizes.get(name) else 4096
         lines.append(f"// data: {plain[len(funcs) + i]}")
         lines.append(f"extern \"C\" __attribute__((aligned(16))) unsigned char re4_stub_data_{i}[{size}] "
-                     f"__asm__({c_string(name)});")
+                     f"__asm__({c_string(SYM + name)});")
         lines.append(f"unsigned char re4_stub_data_{i}[{size}];")
     lines += ["", f"extern \"C\" int re4_stub_count() {{ return {len(funcs)}; }}", ""]
     return "\n".join(lines)
@@ -142,8 +178,11 @@ def trampolines_asm(arch: str, names: list) -> str:
     if arch == "armv7":
         out += ["    .syntax unified", "    .arm"]
     for k, name in enumerate(names):
-        out += [f"    .globl {name}", f"    .hidden {name}", f"    .type {name}, %function",
-                "    .p2align 4", f"{name}:"]
+        if DARWIN:
+            out += [f"    .globl _{name}", f"    .private_extern _{name}", "    .p2align 4", f"_{name}:"]
+        else:
+            out += [f"    .globl {name}", f"    .hidden {name}", f"    .type {name}, %function",
+                    "    .p2align 4", f"{name}:"]
         if arch == "i686":
             out += [f"    pushl ${k}",
                     "    call re4_module_import_resolve",
@@ -167,7 +206,7 @@ def trampolines_asm(arch: str, names: list) -> str:
                     "    subq $128, %rsp"]
             out += [f"    movdqu %xmm{i}, {16 * i}(%rsp)" for i in range(8)]
             out += [f"    movl ${k}, %edi",
-                    "    call re4_module_import_resolve@PLT",
+                    "    call " + ("_re4_module_import_resolve" if DARWIN else "re4_module_import_resolve@PLT"),
                     "    movq %rax, %r11"]
             out += [f"    movdqu {16 * i}(%rsp), %xmm{i}" for i in range(8)]
             out += ["    addq $128, %rsp",
@@ -195,8 +234,10 @@ def trampolines_asm(arch: str, names: list) -> str:
                     "    br x16"]
         else:
             sys.exit(f"no trampoline template for {arch}")
-        out.append(f"    .size {name}, .-{name}")
-    out.append('    .section .note.GNU-stack,"",%progbits')
+        if not DARWIN:
+            out.append(f"    .size {name}, .-{name}")
+    if not DARWIN:
+        out.append('    .section .note.GNU-stack,"",%progbits')
     return "\n".join(out) + "\n"
 
 
@@ -243,7 +284,7 @@ def imports_source(module: str, funcs: list, datas: list) -> str:
         # A data object of a sibling module cannot be reached through a call
         # trampoline; the module gets a private zeroed copy (listed in the report).
         lines.append(f"extern \"C\" __attribute__((visibility(\"hidden\"), aligned(16))) unsigned char "
-                     f"re4_import_data_{i}[4096] __asm__({c_string(name)});")
+                     f"re4_import_data_{i}[4096] __asm__({c_string(SYM + name)});")
         lines.append(f"unsigned char re4_import_data_{i}[4096];")
     return "\n".join(lines) + "\n"
 

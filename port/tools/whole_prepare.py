@@ -145,6 +145,11 @@ def rewrite_gx_fifo(text: str) -> str:
 
 
 def rewrite(text: str) -> str:
+    if sys.platform == "darwin":
+        # Mach-O section specifiers need "segment,section"
+        text = text.replace('section(".sdata")', 'section("__DATA,.sdata")')
+        if "static u8 index[20][3]" in text:
+            text = re.sub(r"\bindex\b", "gx_quad_index", text)
     text = whole_asm_check.rewrite_copies(text)
     text = whole_asm_check.drop_register_pins(text)
     original = text
@@ -493,6 +498,17 @@ def lp64_sizes(staging: Path) -> int:
     return total
 
 
+def mach_o_asm_names(staging: Path) -> None:
+    """Mach-O adds "_" to every C symbol: __asm("name") labels written for ELF get it too."""
+    pattern = re.compile(r'__asm\("([A-Za-z_][A-Za-z0-9_]*)"(\)|\s+RE4_ASM_U32)')
+    for path in staging.rglob("*"):
+        if path.suffix in (".c", ".cpp", ".h", ".inc") and path.is_file():
+            body = path.read_text(encoding="utf-8", errors="surrogateescape")
+            new = pattern.sub(r'__asm("_\1"\2', body)
+            if new != body:
+                path.write_text(new, encoding="utf-8", errors="surrogateescape")
+
+
 def prepare(out: Path) -> Path:
     tree = out / "tree"
     staging = out / "staging"
@@ -507,6 +523,8 @@ def prepare(out: Path) -> Path:
     views = apply_byte_views(staging)
     casts = apply_int_casts(staging)
     arcs = arc_calls(staging)
+    if sys.platform == "darwin":
+        mach_o_asm_names(staging)
     plan = module_plan()
     # Every dropped inline asm with real instructions needs a C replacement.
     found, problems = whole_asm_check.check(staging, whole_asm_check.plan_units(plan), OVERLAY)

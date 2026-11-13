@@ -1,3 +1,7 @@
+#ifdef __APPLE__
+#define _XOPEN_SOURCE 600
+#define _DARWIN_C_SOURCE 1
+#endif
 // Write watchpoints for diagnosis (milestone 12): re4_watch_write(address,
 // label) asks the CPU to report every write to the 4 bytes at `address` made
 // by the calling OS thread (the game's threads all run on it, os_thread.cpp).

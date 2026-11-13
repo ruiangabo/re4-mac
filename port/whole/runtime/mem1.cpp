@@ -15,6 +15,10 @@
 #include <string.h>
 #include <sys/mman.h>
 
+#ifdef __APPLE__
+// no MAP_FIXED_NOREPLACE: callers check that the range is free first (game_window.cpp findFree, the loader)
+#define MAP_FIXED_NOREPLACE MAP_FIXED
+#endif
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0x100000
 #endif

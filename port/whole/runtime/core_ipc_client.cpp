@@ -201,7 +201,14 @@ bool startLocked(std::unique_lock<std::mutex>& l)
         return false;
     }
     int sv[2];
+#if defined(__APPLE__)
+    if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0) {
+        fcntl(sv[0], F_SETFD, FD_CLOEXEC);
+        fcntl(sv[1], F_SETFD, FD_CLOEXEC);
+    } else {
+#else
     if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, sv) != 0) {
+#endif
         g.problem = std::string("no socket for the core process: ") + strerror(errno);
         return false;
     }
