@@ -205,7 +205,9 @@ void re4_core_pad(const Re4CorePad* pad);
  * last frame (the title and its menus, loading, a sub screen: inventory, map,
  * files, merchant, options, radio, typewriter); there the app's button mapping
  * gives way to the device's default (29.10.2026). Bit 5: a button prompt ("A
- * Open", the quick-time events; noted only). */
+ * Open", the quick-time events; noted only). Bit 6: the scope or the
+ * binoculars are up, where the C stick zooms (cores since 12.11.2026,
+ * runtime/wheel_zoom.cpp; the app keeps the mouse off the C stick there). */
 unsigned re4_core_rumble(void);
 /* A vsync of the device's display at `ns` (CLOCK_MONOTONIC, e.g. the
  * Choreographer's frame time), any thread, every vsync while the game is
@@ -320,8 +322,10 @@ int re4_core_room_outline(float* out, int maxEdges, unsigned* info);
  * 1 blue, 2 green, 3 yellow; the beam and the dot. Any thread. */
 void re4_core_set_laser_colour(int colour);
 /* The app menu's "View distance" (cores since 09.11.2026, patch 0223, runtime/view_distance.cpp): the distance fog and
- * the far plane of the view at `percent` of the room's (20..100; the menu: 100 Normal, 75 Medium, 50 Short); what lies
- * beyond is not drawn. Rooms without fog keep their view. Takes effect at the next game frame. Any thread. */
+ * the far plane of the view at `percent` of the room's (20..100; the menu: 100 Normal, 75 Medium, 50 Short, since
+ * 0.99.18 35 Very short); what lies beyond is not drawn. Above 100 (cores since 0.99.18, the menu's 150 "Far"): the
+ * room's fog stays, the far plane moves out to where it is 95 % dense. Rooms without fog keep their view. Takes
+ * effect at the next game frame. Any thread. */
 void re4_core_set_view_distance(int percent);
 /* The app menu's "Aggressive frame skip" (saves CPU; cores since 10.11.2026, patch 0227, runtime/cpu_skip.cpp): while
  * the game's frames run late (longer than two fields) it leaves a picture out itself (at most one in a row), the logic runs on.
@@ -354,6 +358,17 @@ void re4_core_touch(float u, float v);
  * aims, as angles in radians (yaw positive left, pitch positive up), added up to the next game frame and
  * turned there as the gyro turns the aim (the scope's zoom too). Any thread. */
 void re4_core_aim_turn(float yaw, float pitch);
+/* The mouse wheel (cores since 12.11.2026, 0.99.12; runtime/wheel_zoom.cpp): `notches` up (positive, zooms in) or
+ * down, an eighth of the zoom each, handed to the game as a short push of the C stick while the scope or the
+ * binoculars are up; dropped anywhere else. Any thread. */
+void re4_core_zoom(int notches);
+/* The cheat "Random enemies" (cores since 12.11.2026, 0.99.12; runtime/enemy_random.cpp, patch 0231): its seed
+ * (20 bits), 0 off; from the next room on. Any thread. */
+void re4_core_set_enemy_random(int seed);
+/* "Gentler QTEs" (cores since 14.11.2026, 0.99.15; runtime/qte_touch.cpp re4_qte_level, patch 0232): on, the quick-time
+ * events of Professional take the time windows and press counts of Normal; damage, enemies and the rest stay
+ * Professional's. Any thread. */
+void re4_core_set_gentle_qte(int on);
 /* A swipe across the picture (cores since 22.10.2026): dir 1 the next tab of
  * the sub screen (a swipe to the left), -1 the one before, nothing beyond the
  * first and the last; ignored outside the normal inventory. Any thread. */

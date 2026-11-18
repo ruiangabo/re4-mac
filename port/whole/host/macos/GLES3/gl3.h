@@ -9,6 +9,13 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* ETC2 names (GLES 3 core, GL 4.3; not on macOS GL 4.1). Only the upstream HD pack loader (c4tex, which is
+ * never switched on in this port) refers to them, so the values just have to compile. */
+#ifndef GL_COMPRESSED_RGB8_ETC2
+#define GL_COMPRESSED_RGB8_ETC2 0x9274
+#define GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2 0x9276
+#define GL_COMPRESSED_RGBA8_ETC2_EAC 0x9278
+#endif
 /* GL 4.3 (not on macOS): a hint only */
 static inline void glInvalidateFramebuffer(GLenum t, GLsizei n, const GLenum* a) { (void) t; (void) n; (void) a; }
 

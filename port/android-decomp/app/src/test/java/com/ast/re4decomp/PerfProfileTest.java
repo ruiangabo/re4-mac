@@ -28,6 +28,21 @@ public class PerfProfileTest {
   private static PerfProfile.Bench bench(int c30, int c60) { return new PerfProfile.Bench(c30, c60, false, true); }
   private static final PerfProfile.Bench NONE = new PerfProfile.Bench(0, 0, false, false);
 
+  @Test public void bloomOnlyOnStrongDevices() {
+    // 0.99.13: "Light" for High where the chip holds more than the screen's level (as MSAA), never for Medium or
+    // Low, never with the processor near its end; off by default (an older saved profile reads 0 there)
+    PerfProfile.Device retroid = dev("OpenGL ES 3.2, Adreno (TM) 650", 8, 1, 2841, 7700, 60, 1080);
+    assertEquals(1, PerfProfile.values(PerfProfile.HIGH, retroid, bench(8, 8))[PerfProfile.BLOOM]);
+    assertEquals(0, PerfProfile.values(PerfProfile.MEDIUM, retroid, bench(8, 8))[PerfProfile.BLOOM]);
+    assertEquals(0, PerfProfile.values(PerfProfile.LOW, retroid, bench(8, 8))[PerfProfile.BLOOM]);
+    // the project owner's Retroid (4x / 3x): 3x is its screen's level, nothing to spare
+    assertEquals(0, PerfProfile.values(PerfProfile.HIGH, retroid, bench(8, 6))[PerfProfile.BLOOM]);
+    assertEquals(0, PerfProfile.bloomFor(PerfProfile.HIGH, 8, 6, true));
+    assertEquals(1, PerfProfile.bloomFor(PerfProfile.HIGH, 7, 6, false));
+    assertEquals(0, PerfProfile.bloomFor(PerfProfile.HIGH, 6, 6, false));
+    assertEquals(CoreMenu.BLOOM_LEVEL, PerfProfile.KEYS[PerfProfile.BLOOM]);
+  }
+
   @Test public void theReportsDevicesGetTheirProfiles() {
     // POCO X7 Pro (Mali-G720 MC7, 3.5x / 2.5x, 120 Hz, 2712 x 1220): High, 60 FPS; 2.5x is below its screen's 3.5x:
     // FXAA, no MSAA, and 16x
@@ -79,6 +94,65 @@ public class PerfProfileTest {
     assertEquals(PerfProfile.LOW, PerfProfile.recommend(dev("Mali-G57", 8, 2, 2000, 1892, 60), bench(6, 4)));
     // the processor sign of the benchmark: Low
     assertEquals(PerfProfile.LOW, PerfProfile.recommend(retroid, new PerfProfile.Bench(5, 3, true, true)));
+  }
+
+  /** 0.99.12: the game's thread at the benchmark's place (report 09912-benchmark-too-good, Xiaomi 25078RA3EL "dew",
+   *  Helio G85 with two fast cores, Mali-G52 MC2, 720 x 1600 at 60 Hz: 30 FPS held at exactly 1.5x, 60 not even at
+   *  1x, the game's thread 25.4 ms of 33.4 = 76 %; rated Medium, small frame drops in the village). */
+  @Test public void theProcessorAtThePlaceDecides() {
+    PerfProfile.Device dew = dev("Vulkan 1.3.278 (used as 1.1), Mali-G52 MC2", 8, 2, 2000, 3654, 60.1, 720);
+    // before 0.99.12 (no load known): Medium with frame skip Normal, as the user got it
+    PerfProfile.Bench old = new PerfProfile.Bench(3, 2, false, true);
+    assertEquals(PerfProfile.MEDIUM, PerfProfile.recommend(dew, old));
+    assertEquals(1, PerfProfile.values(PerfProfile.MEDIUM, dew, old)[PerfProfile.SKIP]);
+    // 76 %: the processor holds it back: Low with the game's own frame skip and a short view
+    PerfProfile.Bench busy = new PerfProfile.Bench(3, 2, false, true, 76);
+    assertTrue(PerfProfile.cpuWeak(dew, busy));
+    assertFalse(PerfProfile.cpuTight(dew, busy));
+    assertEquals(PerfProfile.LOW, PerfProfile.recommend(dew, busy));
+    int[] low = PerfProfile.values(PerfProfile.LOW, dew, busy);
+    assertEquals(2, low[PerfProfile.SKIP]);
+    assertEquals(2, low[PerfProfile.VIEW]);
+    assertEquals(R.string.ingame_limit_cpu, BenchmarkFlow.limitText(dew, busy));
+    // Medium chosen by hand on that phone: Aggressive frame skip, a medium view, no 60 FPS
+    int[] medium = PerfProfile.values(PerfProfile.MEDIUM, dew, busy);
+    assertEquals(2, medium[PerfProfile.SKIP]);
+    assertEquals(1, medium[PerfProfile.VIEW]);
+    assertEquals(0, medium[PerfProfile.SMOOTH]);
+    // the same phone a little cooler (70 %, near its end): one lower than the graphics chip allows, Medium -> Low
+    PerfProfile.Bench tight = new PerfProfile.Bench(3, 2, false, true, 70);
+    assertFalse(PerfProfile.cpuWeak(dew, tight));
+    assertTrue(PerfProfile.cpuTight(dew, tight));
+    assertEquals(PerfProfile.LOW, PerfProfile.recommend(dew, tight));
+    assertEquals(2, PerfProfile.values(PerfProfile.LOW, dew, tight)[PerfProfile.SKIP]);
+    assertEquals("Low keeps the medium view when only tight", 1, PerfProfile.values(PerfProfile.LOW, dew, tight)[PerfProfile.VIEW]);
+    assertEquals(R.string.ingame_limit_both, BenchmarkFlow.limitText(dew, tight));
+    // a phone whose graphics chip allows High, the processor near its end: Medium, without 60 FPS, Aggressive skip
+    PerfProfile.Device mid = dev("Mali-G57 MC2", 8, 2, 2200, 5673, 60, 720);
+    PerfProfile.Bench highTight = new PerfProfile.Bench(5, 3, false, true, 65);
+    assertEquals(PerfProfile.MEDIUM, PerfProfile.recommend(mid, highTight));
+    int[] h = PerfProfile.values(PerfProfile.HIGH, mid, highTight);
+    assertEquals(0, h[PerfProfile.SMOOTH]);
+    assertEquals(2, h[PerfProfile.SKIP]);
+    // with room to spare (50 %): as before, Medium with frame skip Normal
+    PerfProfile.Bench calm = new PerfProfile.Bench(3, 2, false, true, 50);
+    assertEquals(PerfProfile.MEDIUM, PerfProfile.recommend(dew, calm));
+    assertEquals(1, PerfProfile.values(PerfProfile.MEDIUM, dew, calm)[PerfProfile.SKIP]);
+    assertEquals(0, PerfProfile.values(PerfProfile.MEDIUM, dew, calm)[PerfProfile.VIEW]);
+    // the Retroid at the dock (about 27 %): High with 60 FPS, unchanged
+    PerfProfile.Device retroid = dev("OpenGL ES 3.2, Adreno (TM) 650", 8, 1, 2841, 7700, 60, 1080);
+    PerfProfile.Bench r = new PerfProfile.Bench(8, 6, false, true, 27);
+    assertEquals(PerfProfile.HIGH, PerfProfile.recommend(retroid, r));
+    assertEquals(1, PerfProfile.values(PerfProfile.HIGH, retroid, r)[PerfProfile.SMOOTH]);
+    // the preferences keep the load with the levels
+    SharedPreferences g = RuntimeEnvironment.getApplication().getSharedPreferences("perfLoadTest", Context.MODE_PRIVATE);
+    g.edit().clear().putInt(CoreMenu.DYN_CAP_30, 3).putInt(CoreMenu.DYN_CAP_60, 2)
+        .putInt(PerfProfile.BENCH_CPU_LOAD, 76).commit();
+    PerfProfile.Bench stored = PerfProfile.Bench.of(g);
+    assertEquals(76, stored.cpuLoad);
+    assertEquals(PerfProfile.LOW, PerfProfile.recommend(dew, stored));
+    g.edit().remove(PerfProfile.BENCH_CPU_LOAD).commit();
+    assertEquals(-1, PerfProfile.Bench.of(g).cpuLoad);
   }
 
   @Test public void aNinetyHertzScreenKeepsThirty() {

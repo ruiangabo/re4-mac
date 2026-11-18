@@ -3,6 +3,1515 @@
 Diese Datei ist das Gedächtnis zwischen den Sitzungen. Jede Sitzung liest sie
 zuerst und aktualisiert sie am Ende (siehe `CLAUDE.md`).
 
+## Feature-Freeze bis 1.0 (Entscheidung des Projektinhabers, 14.11.2026)
+
+„Alles klar, 0.99.15 wird die letzte Version mit Featurefreeze“: **0.99.15 ist die letzte Version mit neuen
+Funktionen.** Danach bis 1.0 nur noch Fehlerbehebungen.
+
+- Keine neuen Funktionen und keine neuen Optionen bis 1.0. Braucht eine Fehlerbehebung eine neue Option, vorher den
+  Projektinhaber fragen.
+- Neue Wünsche kommen auf die Liste für **1.1**, nicht in die laufende Version. Bisher: GitHub #247 (C-Stick mit
+  Tastatur und Maus), #248 (filmische Darstellung).
+- Gerätestand des Projektinhabers (14.11.2026): HD-Texturen, Bloom, der 120-Hz-Rhythmushalter und die dynamische
+  Auflösung laufen. Noch nicht richtig auf einem Gerät geprüft: Zufällige Gegner Stufe 1.5, der ZIP-Export und
+  „Alle Daten löschen“.
+- Gerätestand des Projektinhabers (15.11.2026, über die Hauptsitzung): **alles aus 0.99.17 auf dem Gerät geprüft, es
+  läuft.** Von Nutzern noch nicht geprüft (aus 0.99.15): die sanfteren QTEs, der C-Stick auf Tasten und der Zoom.
+- **Vor 1.0 nicht behoben (Entscheidung des Projektinhabers, 15.11.2026):** Fackelflackern bei 60 FPS, Leons Ruckeln
+  mit dem linken Stick mancher Controller, alte importierte Spielstände mit vertauschten Räumen. Ihre Zeilen in den
+  Known issues bleiben, weil sie weiter stimmen.
+- **Ausnahme für 0.99.18 (vom Projektinhaber selbst gewählt, 15.11.2026):** „Abbrechen“ statt „Abbruch“ in allen
+  Sprachen, zwei neue Stufen der Sichtweite (Sehr kurz, Weit), HD-Texturen im Hintergrund laden (T4).
+
+## Version 0.99.18-rc (in Arbeit, Branch `release-candidate`, Basis b6025eb9 = Release 0.99.17-rc)
+
+Ab 0.99.18 gibt es für den Weg zu 1.0 nur noch einen Arbeitsbranch, `release-candidate` (angelegt vom
+Projektinhaber aus b6025eb9); seine Sitzung führt `master` in `E:\Development\Android\RE4-Fixed` vor (fast-forward),
+`origin/master` nur mit dem OK des Inhabers. Version 0.99.18-rc (versionCode 120), Releasetext
+`port/android-decomp/docs/releases/v0.99.18-rc.md` („Changes since v0.99.17.“, Known issues aus 0.99.17 übernommen).
+Release-APK `CubeEvil4-0.99.18-Android.apk`. Nächste freie Patchnummer weiter 0233.
+
+Aufgaben in dieser Reihenfolge (Hauptsitzung, 15.11.2026): 1. „Abbrechen“ statt „Abbruch“ in allen Sprachen;
+2. Sichtweite „Sehr kurz“ und „Weit“; 3. T4, HD-Texturen im Hintergrund laden.
+
+### 1. „Abbrechen“ statt „Abbruch“ (Projektinhaber, 15.11.2026)
+
+Der Inhaber will die Abbrechen-Taste jeder Frage als Verb, in jeder Sprache so wie Androids eigene Taste.
+
+- **Befund:** alle App-Fragen nehmen `ingame_cancel` (Neustart für Sprache und Renderer, Bericht, Import, Löschen
+  von HD-Texturen, `TextureImportActivity` …), nur „Delete All Data“ hat seit 0.99.15 eine eigene Taste
+  `ingame_wipe_cancel`. Einziges Hauptwort war das deutsche `ingame_cancel` „Abbruch“. Die anderen 10 Sprachen
+  sagen schon, was Android selbst auf die Taste schreibt (ar إلغاء, es/pt Cancelar, fr Annuler, hi रद्द करें,
+  in Batal, it Annulla, ru Отмена, zh 取消); ebenso „Import abbrechen“, „Rennen / Abbrechen“ und „B / Zurück:
+  abbrechen“ und ihre Gegenstücke. Androids eigene Taste (`android.R.string.cancel`, zwei Stellen) übersetzt Android
+  selbst. Die englischen Texte der Classic-App (`strings.xml`) und der Packer-App sagen „Cancel“.
+- **Geändert:** `values-de` `ingame_cancel` „Abbrechen“. `tools/check_translations.py` prüft neu, dass
+  `ingame_cancel` und `ingame_wipe_cancel` in jeder Sprache gleich lauten (`SAME`; mit dem alten deutschen Text
+  meldet es den Fehler).
+- **Geprüft am PC:** `check_translations.py` 448 Texte je Sprache ohne Befund; App-Tests 176 je Variante grün (Core
+  und Classic).
+- **Nicht geprüft:** auf einem Gerät (reine Textänderung).
+
+### 2. Sichtweite „Weit“ und „Sehr kurz“ (Projektinhaber, 15.11.2026)
+
+Namen vom Inhaber bestätigt („Ja, so“): **Weit · Normal · Mittel · Kurz · Sehr kurz** (Far, Normal, Medium, Short,
+Very short). Vorgabe: „Sehr kurz“ mit dichtem Nebel an der Sichtgrenze wie im OUYA-Zweig; „Weit“ nur mit einer
+sicheren Regel nach Messung, ohne kaputte oder unfertige Geometrie, Bereiche außerhalb der Karte oder Löcher, die das
+Original hinter seinem Nebel versteckt.
+
+- **Messung 1, Nebel aller Räume** (Raum-Rundgang über alle 126 Räume, Debug-Discs, i686, `RE4_VIEW_LOG=1`, Tabelle
+  `rc-fog_table.py` im Notizordner): 48 Räume zeichnen schon bei „Normal“ nur bis 20–60 % ihres Nebelendes
+  (`LightEnv.far_play_ratio` 0,3–0,8): Dorf r101/r40x 70 von 175 m (linearer Nebel dort 42 % dicht), Wald r100 43 von
+  107 m, See r107 29–118 m, Steinbruch r10f 330 von 825 m, r118 59 von 297 m, Insel r300 223–282 m, r30f 96 von 485 m,
+  vier Burgräume (r205, r209, r20b, r21b). Die übrigen Nebelräume (fast die ganze Burg und ein großer Teil der Insel)
+  zeichnen bis zum Nebelende (`far_play_ratio` 0).
+- **Messung 2, Bilder:** in allen 46 dieser Räume, die per Debug-Start erreichbar sind (r101 bleibt im Akten-Menü
+  stehen, dafür das gleiche Dorf r400–r409), läuft Leon 150 Bilder in den Raum und dreht sich dann einmal: 8 Bilder je
+  Stufe (`rc-view_shots.sh`, `rc-view_batch.sh` im Notizordner, Bilder über `gx_chunk_render` GLES), verglichen
+  Normal, „Weit“ (sichere Regel) und zum Vergleich „Nebel hinausgeschoben“ (Beginn und Ende × 1,5). 43 Räume wurden
+  frei (r104, r22b, r316 nicht).
+  - **Rauschen:** zwei Läufe mit gleicher Einstellung unterscheiden sich schon in 200–900 Bildpunkten je Bild (Wind,
+    Effekte).
+  - **„Weit“ mit sicherer Regel:** in 42 von 43 Räumen bleibt der Unterschied im Rauschen (mittel 200–600 Bildpunkte);
+    sichtbar im Wald r100 (ferne Baumstämme im Nebel statt einer hellen Lücke, bis 2160 Bildpunkte). Mehr
+    Zeichenaufrufe: See r107 +53 %, Burg r205 +33 %, r209 +23 %, r21b +16 %, r108 +13 %, r118/r11c/r30f +12 %,
+    sonst 0–4 % (Dinge hinter Felsen oder im fast dichten Nebel). Tabelle
+    `E:\Development\Android\builds\release-candidate\view-distance\far-measurements-46-rooms.txt`.
+  - **Nebel hinausgeschoben (nicht gebaut):** bis 68 000 von 229 000 Bildpunkten anders; auf der Insel r300 werden der
+    Wolkenhimmel und die fernen Ufer klar, im Wald der Hügel, im Dorf r111 der Zaun bis zum Ende. Kaputtes war in den
+    Bildern nicht zu sehen, aber genau das zeigt, was der Nebel des Originals verbirgt, und eine Drehung je Raum kann
+    nicht alle Blickwinkel prüfen: darum nicht genommen.
+- **Regel „Weit“:** der Nebel des Raums bleibt genau, wie er ist; nur die Sichtgrenze rückt hinaus bis dorthin, wo
+  dieser Nebel 95 % dicht ist (GX-Nebelkurven der Typen 2/4/5/6/7 wie im Renderer), nie über das Nebelende und nie
+  näher als die des Spiels. Bäume und Häuser tauchen nicht mehr aus halb dünnem Nebel auf; hinter dem Nebelende wird
+  nichts gezeichnet. Räume mit `far_play_ratio` 0 und Räume ohne Nebel bleiben gleich. Die Sichtgrenze wirkt nur aufs
+  Zeichnen (`trans_ot.cpp`, `CameraViewFrustumPtr`), nicht auf die Spiellogik. Ehrlich: eine kleine sichtbare
+  Änderung, die je nach Raum bis zur Hälfte mehr Zeichenaufrufe kostet; so steht es im Hilfetext.
+- **Regel „Sehr kurz“:** 35 % (die OUYA-Einstellung, dort vom Inhaber getestet), sonst wie Kurz; dazu endet der Nebel
+  der GPU an der Sichtgrenze (OUYA-Patch 0901, nicht näher als 6 m). Ohne das sah man im Dorf leeren Boden, wo die
+  Häuser verschwanden (Bild). Mittel und Kurz bleiben, wie sie seit 0.99.6 sind (`kDenseBelow` 50 %).
+- **Kern:** Patch 0223 ruft jetzt `re4_view_fog(Typ, far_play_ratio, &Beginn, &Ende, &Sichtgrenze)`; bei „Normal“
+  Bit für Bit die Werte des Spiels. `re4_core_set_view_distance` nimmt 20–300 %. Messschalter: `RE4_VIEW_LOG=1` (auch
+  „Normal“ ins Protokoll), `RE4_VIEW_DENSE=0/2`, `RE4_VIEW_FAR_MODE=scale`, `RE4_VIEW_FAR_DENSITY`.
+- **App:** `CoreBridge.VIEW_PERCENT` {100, 75, 50, 35, 150}, gespeicherte Werte 0–2 bleiben (3 Sehr kurz, 4 Weit,
+  Unbekanntes wird Normal); jeder Druck: Normal → Mittel → Kurz → Sehr kurz → Weit → Normal; aus (nicht gelb) bei Kurz
+  und Sehr kurz; Bloom bleibt bei Weit an (wie bei Normal). Benchmark-Zusammenfassung und Leistungsprofile kennen die
+  neuen Stufen (bisher auf 0–2 geklemmt). Texte `ingame_view_very_short`, `ingame_view_far`, neuer Hilfetext, 11
+  Sprachen. Protokoll „view distance to the core: Far/Very short …“.
+- **Bilder** (englisch beschriftet) in `E:\Development\Android\builds\release-candidate\view-distance\`:
+  `very-short-*` (Normal, Kurz, Sehr kurz ohne und mit dichtem Nebel), `far-*` (Normal, Weit, Nebel hinausgeschoben;
+  `far-lake-r107` gleiches Bild bei 53 % mehr Zeichenaufrufen).
+- **Geprüft am PC:** Kern i686 -O2 (`whole_build.sh`, Baum `~/re4-rc`) 0 Fehler, Stubs wie erwartet, `--runtime-test`
+  0 failed mit neuer Prüfung `viewfog` (Normal Bit für Bit, Kurz, Sehr kurz mit 6-m-Grenze, Weit für fünf
+  Nebelarten, Räume ohne Nebel und mit `far_play_ratio` 0); Kern für Android (`whole_build_android.sh --abi all`)
+  0 Fehler in beiden ABIs, Stubs wie erwartet; App-Tests 177 je Variante grün (Core und Classic; neu
+  `viewDistanceMovesThroughFiveStepsAndIsOffOnlyWhenShorter`, `viewDistanceLevelsKeepSavedValuesAndTheBloom`; alle
+  Seiten passen in allen Sprachen), `:app:externalNativeBuildCoreDebug` ohne neue Warnung; `check_translations.py`
+  450 Texte je Sprache ohne Befund.
+- **Nicht geprüft:** auf einem Gerät; EU- und US-Discs (der Kern rechnet aus denselben Raumdaten); Vulkan eigens (der
+  Kern zeichnet weniger oder mehr, für beide Renderer gleich); r101 selbst, r104, r22b, r316 (beim Debug-Start nicht
+  frei); je Raum nur eine Stelle und eine Drehung.
+
+### 3. T4: HD-Texturen im Hintergrund laden (Projektinhaber, 15.11.2026)
+
+Bisher las `GxCore::UploadHd` ein Ersatzbild beim ersten Gebrauch sofort auf dem Zeichen-Thread aus der Paketdatei
+(`TexPack::Read`, `pread`) und lud es hoch: der erste Blick in einen Raum wartete auf alle seine Ersatzbilder
+(Known issue seit 0.99.12). Plan: `port/docs/textur-lader-plan.md`, Schritt T4.
+
+- **Messung vorher** (am PC, Pakete des Inhabers aus `builds\textures`, nach WSL kopiert, Linux-Dateicache vor jedem Lauf
+  geleert; 300 aufeinanderfolgende GX-Bilder ab dem Raumstart, `RE4_GX_DUMP_SERIES`, gezeichnet mit `gx_chunk_render`
+  GLES; Skripte `rc-hd_series.sh`, `rc-hd_measure.sh`, `rc-hd_compare.ps1`, `rc-hd_table.py` im Notizordner): fast
+  alles fällt in das erste Bild des Raums, das beim Einblenden fast schwarz ist (Helligkeit 6 von 255) – aber kein
+  schwarzes Bild des Spiels (`VISetBlack`): Warten „bei schwarzem Bild“ wie im Plan hätte es nicht getroffen.
+- **Gebaut:**
+  - `re4gx::TexLoader` (`tex_pack.h/.cpp`): ein eigener Faden („re4-hd-load“, Priorität unter Spiel und Renderer) liest
+    die angefragten Ersatzbilder; höchstens 24 MB (32 bit) bzw. 64 MB (64 bit) gelesen und noch nicht hochgeladen, dann
+    wartet er (Speicher auf schwachen Geräten); `Cancel` verwirft Warteschlange und Fertiges.
+  - `GxCore::UploadHd`: findet es ein Ersatzbild, fragt es den Lader und gibt dem Spiel bis dahin dessen eigenes Bild
+    (keine Unschärfe-Stufe, das Original); das Budget des Grafikspeichers hält den Platz frei (`hdReserved`).
+  - `GxCore::ApplyHd` am Anfang jedes Bildes (nicht im Zwischenbild von 60 FPS): fertige Ersatzbilder auf die GPU und
+    an die Stelle des Originals, höchstens 4 ms je Bild, 12 ms solange 32 oder mehr warten (Raumanfang), 50 ms bei
+    schwarzem Bild (`RE4_TEX_PACK_APPLY_MS`). Ein Raumwechsel (Reset) oder ein anderes Paket verwirft Wartendes, ein
+    vom Spiel freigegebenes Bild auch (`Forget`).
+  - Die Ersatzbilder ändern nur den Sampler (`lodShift`), keinen Shader: das Einsetzen baut kein Programm und keine
+    Vulkan-Pipeline. Vulkan löscht das Original erst nach dem laufenden Bild (`Trash`).
+  - Protokoll („HD textures so far …; in the background: … read, … waiting, … dropped, the loader read … ms, longest
+    wait … ms“), `gx_chunk_render` je Bild „HD later: …“. `RE4_TEX_PACK_SYNC=1`: wie bisher (Vergleich).
+  - Nicht gebaut: das „Gedächtnis je Raum“ des Plans (Vorladen beim nächsten Besuch); nach der Messung nicht nötig.
+- **Messung vorher/nachher** (HD-Arbeit auf dem Zeichen-Thread: Lesen + Hochladen; je Raum das schlimmste Bild und
+  alles in den 300 Bildern; neu dazu: nach wie vielen Bildern alle Ersatzbilder da sind; Tabelle auch in
+  `E:\Development\Android\builds\release-candidate\hd-background\measurements.txt`):
+
+  | Raum | 512 bisher | 512 neu | 1024 bisher | 1024 neu |
+  |---|---|---|---|---|
+  | Bauernhof r103 | 1306 ms / 1917 ms | 15 ms / 156 ms, alle nach 14 Bildern | 2270 / 2797 ms | 34 / 606 ms, 40 Bilder |
+  | Burg r200 | 771 / 1845 ms | 31 / 215 ms, 15 Bilder | 1072 / 2412 ms | 24 / 614 ms, 25 Bilder |
+  | Insel r300 | 1526 / 2585 ms | 13 / 149 ms, 10 Bilder | 1128 / 2575 ms | 30 / 601 ms, 35 Bilder |
+  | Dorf r400 (Mercenaries) | 1959 / 2608 ms | 15 / 236 ms, 20 Bilder | 2720 / 3360 ms | 28 / 928 ms, 59 Bilder |
+
+  Neu bleibt auf dem Zeichen-Thread nur das Hochladen; am PC entpackt die Software-Grafik (llvmpipe) ETC2 selbst und
+  ist dabei langsam; ein Handy gibt ETC2 dem Grafikchip, wie es ist (schneller). Bei 30 Bildern je Sekunde sind alle
+  Ersatzbilder mit 512 nach 0,3–0,7 s da, mit 1024 nach 0,8–2 s, am PC durch das langsame Hochladen begrenzt, am
+  Handy durch das Lesen. Die Insel lief, während daneben die Vulkan-Prüfung mit zwei Kernen übersetzt wurde: ihre
+  Hochladezeiten können etwas zu hoch sein. Gesamtzeiten je Bild („Run“) taugen am PC nicht zum Vergleich: die
+  Software-Grafik baut im ersten Raumbild Shader, mit geleertem Dateicache sogar aus dem Programm-Cache neu
+  (Sekunden in beiden Fassungen).
+- **Gleiches Ergebnis:** das 150. und das letzte Bild jeder Serie sind mit beiden Wegen gleich (0 Bildpunkte anders, 4
+  Räume × 512/1024): am Ende stehen dieselben Ersatzbilder. Bilder des Einblendens (Bauernhof, 512, oben bisher, unten
+  neu): `builds\release-candidate\hd-background\farm-r103-fade-in-512.png`: die HD-Bilder kommen zwischen Bild 506 und
+  518 dazu, während die Szene noch dunkel ist.
+- **Geprüft am PC:** `gx_gl_check` (WSL, Baum `~/re4-rc`, GL und Vulkan mit lavapipe) 0 failed, neu
+  `TestHdBackground` mit einem Paket, das die Prüfung selbst schreibt (4×4-Spielbild blau, 8×8-Ersatz rot): erst das
+  Original, später der Ersatz, ein Reset verwirft das Wartende, Vulkan über den entpackten Ersatzweg; der Lader liest
+  höchstens bis zu seiner Grenze vor, `Cancel` leert ihn. Gegenprobe mit `RE4_TEX_PACK_SYNC=1` (der alte Weg): 5
+  Prüfungen schlagen an. App-Tests 177 je Variante grün, `:app:externalNativeBuildCoreDebug` (beide ABIs) ohne neue
+  Warnung. Der Spielkern ist unverändert.
+- **Nicht geprüft:** auf einem Gerät (Lesen vom Flash-Speicher, echtes ETC2-Hochladen, schwache Geräte mit wenig
+  Speicher, Vulkan auf dem Gerät); EU- und US-Discs (dieselbe Kennung je Bild, der Weg ist gleich); ein Raumwechsel
+  mitten im Spiel über eine Tür (gemessen ab dem Debug-Start eines Raums).
+
+### 4. Die Versionsnummer links vom Update-Knopf (Projektinhaber, 15.11.2026)
+
+Erster Wunsch: „Bitte ändere noch die Platzierung der Versionsnummer im Ingame Menü: die Version soll nun direkt im
+Button stehen [Aktuell] und darunter klein die Versionsnummer aber nicht mehr in Klammer.“ Gebaut als a197d95c (die
+Version klein unter „Aktuell“/„Update“ im Knopf). Danach geändert: „Die Versionsnummer doch nicht im Button sondern wie
+in der OUYA Version links vom Button.“ Gebaut nach dem OUYA-Menü (`OuyaMenu.java` auf `ouya-discarded`, nur gelesen).
+
+- **Titel:** nur noch der Name der Seite (bis 0.99.17 auf der Startseite „… (v0.99.17-rc)“ mit kleiner Version).
+- **Kopf:** `[Titel] … v0.99.18-rc  [Aktuell/Update] [Zurück zum Spiel]`: die Version (`version()` ohne „-core“, mit
+  „v“ wie im OUYA-Menü) 14 sp, nicht fett, grau, 18 dp vor den Knöpfen; kein Knopf. Sie steht auch da, wenn der
+  Update-Knopf ohne Antwort von GitHub (kein Internet) fehlt, dann direkt vor „Zurück zum Spiel“. Die Knöpfe sind wie in
+  0.99.17 (der Stand von a197d95c in den Knöpfen ist zurückgenommen). Sie steht auf jeder Seite des Menüs, wie der
+  Update-Knopf.
+- **Schmale Fenster** (`MenuLayout.Header`, Knöpfe unter dem Titel): die Knöpfe bekommen dort die Breite, die der
+  Zurück-Knopf übrig lässt, statt der halben (vorher brach „Back to the game“ bei 480 px um). Reicht die Zeile für
+  Version und Knöpfe nicht (z. B. 320–340 dp), steht die Version klein unter den Knöpfen an ihrem Ende, statt sie zu
+  zerdrücken.
+- **Geprüft am PC:** App-Tests 178 je Variante grün (Core und Classic); neu `CoreMenuRowsTest.versionLeftOfTheUpdateButton`
+  (echte Textbreiten: 11 Sprachen, Schrift 100/130/150 %, ohne Antwort, aktuell, Update, 320–960 dp: der Kopf im
+  Fenster, die Version auf einer Zeile neben den Knöpfen, rechts nach links gespiegelt, unter ihnen nur in schmalen
+  Fenstern; ab 700 dp beide Knöpfe einzeilig), `updateButtonSitsLeftOfResumeAndComparesVersions` erweitert (Titel ohne
+  Version, „v0.99.18-rc“ links vom Update-Knopf, auch ohne ihn, kein Knopf). Bilder des Kopfes (Deutsch und Englisch,
+  je ohne Antwort, aktuell, Update; 900, 480 und 340 px breit) in
+  `E:\Development\Android\builds\release-candidate\menu-header\`.
+- **Nebenbefund (nicht geändert):** mit echten Textbreiten ragt auf der Startseite bei 320 dp und 130 % Schrift eine
+  Linie im Seiteninhalt (nicht im Kopf) rechts über den Rand; der Inhalt ist von dieser Änderung unberührt.
+- **Nicht geprüft:** auf einem Gerät.
+
+### 5. Sichtweite „Keine“ und Augen im Knopf (Projektinhaber, 15.11.2026)
+
+„"Sichtweite Sehr Kurz" wird zu "Sichtweite Keine" und der Button soll nur hier nicht gehighlighted sein. Alle anderen
+Einstellungen bleiben gehighlighted (von Weit bis Kurz). Kannst du außerdem (weil der Button eh die volle Breite hat)
+hinter den Text im Button je nach Sichtweite 4, 3, 2 oder 1 Augen-Icons machen und bei "Keine" ein durchgestrichenes
+Auge?“
+
+- **Name:** die Stufe „Sehr kurz“ (Abschnitt 2: 35 %, Nebel dicht an der Sichtgrenze) heißt jetzt „Keine“ (en None, es
+  Ninguna, fr Aucune, it Nessuna, pt Nenhuma, ru Нет, ar لا شيء, hi कोई नहीं, in Tidak ada, zh 无); die Stufe selbst
+  ist unverändert, ebenso der Schlüssel `ingame_view_very_short` und der gespeicherte Wert 3. Der Hilfetext sagt in
+  11 Sprachen, was sie tut, ohne dass „Keine“ nach „nichts gezeichnet“ klingt: die kürzeste, dichter Nebel schon in der
+  Nähe, für langsame Handys, was nah ist, wird wie immer gezeichnet.
+- **Hervorgehoben** (gelb) bei Weit, Normal, Mittel und Kurz, nicht bei Keine (`CoreBridge.viewOff`; bisher aus bei Kurz
+  und Sehr kurz).
+- **Augen hinter dem Text** (`CoreMenu.viewLabel`, `CoreMenu.Eyes`): Weit 4, Normal 3, Mittel 2, Kurz 1, Keine ein
+  durchgestrichenes Auge (`CoreBridge.viewEyes`). Lucide „eye“ und „eye-off“ als Vektorgrafiken
+  (`res/drawable/ic_eye.xml`, `ic_eye_off.xml`, die Pfade aus Lucides SVG, die Bögen ausgeschrieben); ISC-Lizenz in
+  `app/THIRD_PARTY_NOTICES.md` (neu, wie die von RetroTouch in `app/libs/`) und ein Satz in `LICENSE-PLATFORM.txt`.
+  Die Augen sind ein Stück nach einem Leerzeichen: so hoch wie die Buchstaben (115 % der Schriftgröße), in der Farbe
+  des Textes (sie folgen dem Zustand des Knopfes wie der Text), in einem schmalen Knopf auf der nächsten Zeile, nie
+  abgeschnitten; bei Arabisch stehen sie auf der linken Seite (nach dem Text). TalkBack liest nur den Text. Der Knopf
+  steht allein in einer einfachen Zeile über die ganze Breite (die Knopfzeilen sind ein GridLayout, das die Höhe bei
+  der Breite des ungebrochenen Textes misst).
+- **Geprüft am PC:** App-Tests 179 je Variante grün (Core und Classic); neu `viewDistanceMovesThroughFiveStepsWithEyes`
+  (Reihenfolge, Hervorhebung, Text, Augenzahl, TalkBack-Text) und `CoreMenuRowsTest.viewDistanceEyesNeverCutTheText`
+  (echte Textbreiten: 11 Sprachen, Schrift 100/130/150 %, 5 Stufen, 320–960 dp: nichts abgeschnitten, die Augen nach
+  dem Text, bei normaler Schrift ab 700 dp eine Zeile); `check_translations.py` ohne Befund. Bilder des Knopfes in allen
+  fünf Stufen (Deutsch und Englisch, 900 und 360 px breit) in
+  `E:\Development\Android\builds\release-candidate\view-distance-button\`.
+- **Nicht geprüft:** auf einem Gerät.
+
+### 6. Nur „Andiweli“, nicht der volle Name (Projektinhaber, 15.11.2026)
+
+- Der Startbildschirm (`MainActivity`, `core_author`, nur Englisch) sagt „By Andiweli“ statt des vollen Namens; ebenso
+  die Beschreibung des Startbildschirms in dieser Datei (Abschnitt zu MainActivity).
+- **Gesucht** (alle Dateien des Repositorys, auch Binärdateien und UTF-16; ohne die RetroTouch-AAR, deren
+  Lizenzzeile die Hauptsitzung mit dem Inhaber klärt): sonst nirgends sein Vor- oder Nachname, auch nicht abgekürzt
+  oder in anderer Schreibweise, weder in den Texten der App noch im Launcher, in „Quelle und Updates“, den beiden
+  Packer-Apps oder der Versions-Ressource des Windows-Packers (`texpack.rc`: „CC0 (public domain)“, kein Name). Die
+  „Stürmer“ in den Abschnitten zu den Ganados mit Dynamit sind die angreifenden Gegner, kein Name.
+- **Geprüft am PC:** App-Tests 179 je Variante grün (Core und Classic).
+- **Nicht geprüft:** auf einem Gerät.
+
+## Branch `converter-tool`: Texture Packer 1.4 für Windows mit Fenster (14.11.2026, Basis f193f9e0 = 0.99.15-rc)
+
+Wunsch des Projektinhabers (14.11.2026): „zusätzlich zur Commandline Version auch eine richtige Windows Version mit
+Fenster“ (Fenster, Paket hineinziehen mit Hinweis, Optionen wie Konsole und Android, Speichern-Dialog, sichtbare
+Umwandlung, Erfolg/Fehler am Ende). Nur das PC-Programm; App und Android-Packer unverändert (Feature-Freeze).
+Beschreibung, Begründungen, Releasetext-Vorlage und alle Prüfungen: `port/docs/textur-packer-windows.md`.
+
+- **Zwei Dateien:** `CubeEvil4-TexturePacker.exe` ist jetzt das Fenster (Win32 mit GDI/GDI+, keine Laufzeit, 0,6 MB),
+  die bisherige Konsolen-Version heißt `CubeEvil4-TexturePacker-Console.exe`. Grund: eine Datei kann nicht beides
+  sauber (Konsolen-Programm: schwarzes Fenster blitzt beim Doppelklick; Fenster-Programm: die Befehlszeile wartet nicht).
+  Das Fenster mit Konsolen-Optionen verweist auf die Konsolen-Version (Rückgabewert 2).
+- **Code:** `port/tools/texpack/gui.cpp` (Fenster), `gui_text.h/.cpp` (90 Texte, nur Englisch: Projektinhaber
+  14.11.2026 „die windows app braucht nur englisch sein!“; die zuerst gebauten 11 Sprachen wieder entfernt), `pc.h`
+  (von Fenster und Konsole geteilt), `res/` (Symbol aus dem Android-Packer-Zeichen, Version, Manifest). Kern: Fortschritt mit Bildname und abgelehnten Bildern, Ergebnis mit Liste der abgelehnten Bilder,
+  `EstimateEach`; die `.c4tex` bleibt gleich. Version 1.4 (steht im Info-Text der Datei).
+- **Geprüft** (Windows-PC): `texpack_tests` 601 / mit Testbildern 966 ohne Fehler (auch GCC in WSL), `run_e2e.py` 36/36;
+  HD Project als ZIP mit Größe 256 im Fenster in 2 min 22 s, Byte für Byte gleich der Konsolen-Datei, gegen 1.3 nur 2
+  Bytes (Version, Datum); Abbrechen und Schließen löschen die halbe Datei; Speichern- und Öffnen-Dialoge; abgelehnte
+  Bilder mit Grund; hell und dunkel. Bilder (englisch):
+  `E:\Development\Android\builds\converter-tool\screenshots\`, `.exe` in `E:\Development\Android\builds\converter-tool\`.
+- **Nicht geprüft:** echtes Ziehen mit der Maus (die Sitzung darf die Maus nicht bewegen; geprüft mit demselben
+  Windows-Datenobjekt wie beim Ziehen), andere Skalierungen als 100 %, zweiter Monitor, Hoher Kontrast, Windows 10.
+- **Android-Packer-App 1.4** (Projektinhaber: „Ja, auf 1.4“): `versionName` 1.4, `versionCode` 2, gleicher Kern.
+  **Alle drei Werkzeuge nur Englisch** (Projektinhaber: „alle 3 tools sollen nur englisch sein“): die App hat nur noch
+  `res/values` (die 10 Sprachordner, `locales_config.xml`, `supportsRtl` und der Modus `packer` von
+  `tools/check_translations.py` entfernt); `PackerScreenTest` prüft, dass ein deutsches und ein arabisches Handy
+  dieselben englischen Texte von links nach rechts zeigen. Die Konsolen-Version hatte nie andere Sprachen. Debug-APK
+  `builds\converter-tool\CubeEvil4-TexturePacker-1.4.apk` (nicht auf einem Gerät geprüft).
+- **Zusammengeführt (14.11.2026):** nach dem Maustest des Projektinhabers („Ja, klappt“: das Paket mit der Maus ins
+  Fenster ziehen) und seinem OK („Ja, nach dem Test“) über `09915` (507e72b1) nach `master`; im Releasetext von
+  0.99.16.
+
+## Version 0.99.17-rc (veröffentlicht 15.11.2026, Branch `09917`, Basis 650b543e = Release 0.99.16-rc; Tag 0.99.17-rc = b6025eb9)
+
+Version 0.99.17-rc (versionCode 119), Releasetext `port/android-decomp/docs/releases/v0.99.17-rc.md` („Changes since
+v0.99.16.“, Known issues aus 0.99.16 übernommen, zwei neue). Nächste freie Patchnummer weiter 0233. Nur App.
+**Auf dem Gerät geprüft (Projektinhaber, 15.11.2026):** alles aus 0.99.17 läuft; die Punkte „Nicht geprüft“ der
+Abschnitte unten sind damit erledigt.
+
+### 1. Kamera-Aussparung neu: Bild über die Aussparung, Touch über den ganzen Bildschirm (Projektinhaber, 15.11.2026)
+
+Ein Nutzer nach 0.99.16: „The app was working normally in version 0.99.15, but the black border has returned in the
+new update!“ Der Projektinhaber: mit 0.99.15 war der Rand bei ihm weg; andere Nutzer mit Kameraloch sahen trotzdem
+einen Balken, RetroTouch ließ sich nicht in den Bereich der Kamera schieben, auf seinem Telefon standen Touch-Ebene und
+Editor-Leiste etwa 110 px vom linken Rand weg. Plan der Hauptsitzung, vom Inhaber freigegeben („Ja, so bauen“); die
+Umrechnung nach dem Vorschlag dieser Sitzung („Ja dann baue im 0.99.17 Subthread bitte so um wie von dir
+vorgeschlagen“), RetroTouch unverändert. Die Meldung vom Moto G22 (Abschnitt 3 von 0.99.15) ist damit wieder
+bearbeitet.
+
+- **Fenster:** `Cutout.extend` wie in bbfe48e2 (ab Android 11 `ALWAYS`, auf 9 und 10 `SHORT_EDGES`). Das App-Menü
+  rechnet seine Größe ohne den Streifen (`CoreMenu.resizeWindow`), die FPS-Anzeige hält wie bisher über `CornerInset`
+  Abstand.
+- **Touch über das ganze Fenster:** die Touch-Ebene hat keine Ränder mehr (0.99.15 rückte sie um die Aussparung ein);
+  Knöpfe lassen sich an jeden Rand und in den Kamera-Streifen ziehen.
+- **Bezug der Layouts (`TouchFrame`):** RetroTouch speichert Mitte, Breite und Höhe als Anteile seiner Ansicht. Bis
+  0.99.16 war das das Fenster ohne Streifen (der sichere Bereich), jetzt das ganze Fenster. Der sichere Bereich wandert
+  beim Drehen um 180° mit der Kamera auf die andere Seite, eine einmalige Umrechnung wäre nur in einer Lage genau.
+  Darum:
+  - **Standard-Layout:** bei jeder Änderung (erstes Layout, Drehen) in den sicheren Bereich der Kamera-Seite gelegt
+    (`TouchControls.layout(shoulder, w, h, safe)`): Mitten verschoben, runde und geformte Knöpfe gleich groß (ihre
+    Größe ist im Querformat die der Höhe), die Umsehen-Fläche so breit wie vorher. Ohne eigenes Layout liegt alles wie
+    bisher, nie unter der Kamera.
+  - **Layout von vor 0.99.17:** einmal (Marke `layout_cubeevil4_frame`) samt Editor-Zustand (Zahnrad) als altes
+    aufbewahrt (`layout_cubeevil4_safe`, `…_safe_editor`) und für jede Kamera-Seite umgerechnet in RetroTouchs
+    Schlüssel geschrieben: in beiden Lagen genau. Ändert der Spieler im Editor etwas (RetroTouchs gespeichertes Layout
+    weicht vom zuletzt geschriebenen `…_wrote` ab), gilt sein Layout ab dann fürs ganze Fenster und das alte fällt
+    weg; Öffnen und Schließen ohne Änderung lässt es alt. Das Zahnrad ebenso für sich.
+  - **Standard im Editor gespeichert** (nichts verschoben oder RESET; RetroTouch speichert bei jedem Schließen): wird
+    wieder entfernt, der Standard folgt der Kamera.
+  - **Touch-Layout-Datei** (Export, Import, auch im ZIP): Layouts des ganzen Fensters tragen `"frame": "window"`;
+    Dateien ohne die Angabe (alle vor 0.99.17 und ein noch altes Layout) gelten als sicherer Bereich, werden in ihn
+    eingepasst und wie ein altes Layout behandelt. Die Schlüssel beginnen mit `layout_`: die Einstellungen im ZIP
+    lassen sie aus (`PlayerBackup.outside`).
+- **Editor-Leiste:** RetroTouch 1.0.0-beta.10 zeichnet sie und die Zeile „DRAG / Selected“ immer über die volle Breite
+  (keine Schnittstelle für Ränder, `RetroTouchView` ist final). Bleibt so (Entscheidung des Inhabers); sie lässt
+  sich nach oben oder unten ziehen. Die Idee `setSafeInsets` geht an den RetroTouch-Chat des Inhabers; `app/libs`
+  und `E:\Development\Android\RetroTouch` unverändert. Steht in den Known issues. **Überholt:** mit RetroTouch
+  1.0.0-beta.11 hält die Leiste Abstand (Abschnitt 6).
+- **Diagnose:** eine Zeile `camera cutout: …` im Fehlerprotokoll (und so im Bericht), bei jeder Änderung: Fenstergröße
+  und -lage, Bildschirmgröße, sichere Abstände und Kamera-Seite, angefragter und tatsächlicher Fenstermodus, und ob
+  das Fenster über die Aussparung reicht oder einen Streifen freilässt (dann hält das Telefon die App mit einer
+  eigenen Einstellung fern, z. B. Samsung „Kameraaussparung“; steht in den Known issues). Dazu Zeilen, wenn ein altes
+  Layout umgerechnet wird oder nach dem Editor in den neuen Bezug wechselt.
+- **Geprüft am PC:** App-Tests 168 je Variante grün (Core und Classic); neu `CutoutTest` (5: Modus ab Android 11 und auf 10, sichere Abstände
+  links und rechts, die Zeile fürs Protokoll) und `TouchFrameTest` (10: beide Kamera-Seiten, Drehen um 180°
+  hin und zurück, altes Layout vor und nach einem Speichern im Editor, Standard-Layout auf beiden Seiten und nach dem
+  Speichern ohne Änderung, Zahnrad, Dateien beider Bezüge).
+- **Nicht geprüft:** auf einem Gerät mit Kameraloch (Bild über die Kante, Knöpfe in den Streifen ziehen, Drehen um
+  180° mit altem und neuem Layout, Editor-Leiste, App-Menü, die Protokollzeile bei einem Telefon mit eigener
+  Einstellung).
+
+### 2. Name der APK (Projektinhaber, 15.11.2026)
+
+Ab 0.99.17 heißt die APK im Release `CubeEvil4-<Version ohne -rc>-Android.apk` (0.99.17: `CubeEvil4-0.99.17-Android.apk`;
+die von 0.99.16 benennt der Inhaber selbst um). Tag und `versionName` bleiben `0.99.17-rc`. `AppUpdate` vergleicht seit
+0.99.6 nur den Tag mit dem `versionName` und nimmt irgendeine Datei auf „.apk“: keine Änderung nötig (geprüft von der
+Hauptsitzung). Geändert: der Update-Abschnitt in `v0.99.17-rc.md`; sonst nennt keine Datei (README, Doku, Skripte in
+`port/tools`, `port/scripts`) die Release-APK. Die veröffentlichten Releasetexte bis 0.99.16 bleiben, wie sie sind.
+
+### 3. Das Ingame-Menü gleitet hinein und hinaus (Projektinhaber, 15.11.2026)
+
+- `CoreMenu.onStart` gibt dem Fenster vor dem Anzeigen die Animation `CoreMenuSlide` (`res/anim/menu_slide_in.xml`:
+  aus einer Bildschirmhöhe unterhalb, 220 ms, abbremsend; `menu_slide_out.xml`: zurück nach unten, 200 ms,
+  beschleunigend). Android spielt sie am Fenster ab: gilt für jeden Weg hinein (SELECT, F1, Zahnrad, Zurück) und
+  hinaus; das Spiel läuft beim Schließen sofort weiter (der Dismiss-Listener kommt vor dem Ende der Animation), beim
+  Öffnen steht es wie bisher sofort. Jedes Öffnen ist ein neues Fenster, schnelles Auf-Zu-Auf stört sich nicht.
+- Android-Animationen aus (Animator-Dauer 0, `ValueAnimator.areAnimatorsEnabled`; unter Android 8 die Einstellung
+  selbst): `CoreMenuNoAnimation`, das Menü erscheint und geht sofort. Die Fensteranimationen selbst folgen außerdem
+  Androids Skala für Fensteranimationen.
+- Unterfenster (Fragen wie „Delete All Data“) behalten ihre Animation; die Größe des Menüs um die Kamera-Aussparung
+  (Abschnitt 1) ist davon unberührt. Nur die Haupt-App; die OUYA-App ist nicht berührt.
+
+### 4. Der Benchmark endet mit B nicht (Meldungen von Nutzern, über den Projektinhaber, 15.11.2026)
+
+- **Ursache:** `CoreActivity.dispatchKeyEvent` beendete den Benchmark nur bei Androids Tastencodes `BUTTON_B`, `BACK`
+  und `ESCAPE`. Das B der Touch-Steuerung (RetroTouch) ist kein Tastendruck: `CoreTouch.action` gibt es als
+  GameCube-Knopf an `CoreInput.touchButton`, also nur ans Spiel; der Benchmark sah es nie, obwohl seine Zeile
+  „B / Back: cancel“ sagt. Ebenso fiel durch: ein Controller-B, das die Tastenbelegung auf eine andere Taste legt
+  oder das mit „Swap A/B“ Androids A-Code sendet, und die B-Taste der Tastatur-Belegung.
+- **Behoben:** `BenchmarkFlow.cancels(Taste, GC-Knöpfe)`: Zurück, Esc, jede Taste, die über die Belegung des Controllers
+  (`CoreInput.gcButton`) oder der Tastatur (`keyboardButton`) das B des Spiels drückt, und Androids B-Code, wenn er
+  nichts drückt. Das Touch-B: `CoreActivity.benchTouch` bei jedem Touch-Ereignis (`CoreInput.touchHeld`, neu), ein
+  Druck beendet ihn; auch mit „B einrasten“. Eine Protokollzeile nennt, womit er beendet wurde. Ein eigenes Feld zum
+  Antippen war nicht nötig: das Touch-B ist sichtbar.
+
+### 5. Geprüft und offen (Abschnitte 2–4)
+
+- **Geprüft am PC:** App-Tests 175 je Variante grün (Core und Classic), `CoreInputTests` 1851; neu `BenchmarkCancelTest` (4: Zurück, Esc und das B des Spiels; Controller
+  mit und ohne „Swap A/B“; jede Taste der Tastatur-Belegung für B; das Touch-B) und `CoreMenuSlideTest` (3: Dauer und
+  Weg der beiden Animationen, die Stile, Animationen aus).
+- **Nicht geprüft:** auf einem Gerät (das Gleiten, Auf-Zu-Auf schnell hintereinander, Unterfenster, das Menü bei
+  Kameraloch; den Benchmark mit Touch-B, Controller und Tastatur beenden).
+
+### 6. RetroTouch 1.0.0-beta.11: Editor-Leiste und Zahnrad weg von der Kamera (Projektinhaber, 15.11.2026)
+
+„hier beta11, bitte um einbau“: die AAR aus der RetroTouch-Sitzung des Inhabers
+(`C:\Users\andiw\Downloads\RetroTouch-1.0.0-beta.11.aar`, 48 743 Bytes, SHA1 ed1aa1d4…) ersetzt
+`app/libs/retrotouch.aar`; der Ordner `E:\Development\Android\RetroTouch` bleibt unberührt.
+
+- **Geprüft gegen beta.10 (javap):** dieselben 20 Klassen; die öffentliche Schnittstelle aller Klassen gleich bis auf
+  das neue `RetroTouchView.setSafeInsets(int, int, int, int)`; Manifest, `proguard.txt`, `R.txt` und `META-INF/LICENSE`
+  gleich, die Hinweisdatei `retrotouch-THIRD_PARTY_NOTICES.md` bleibt. Im Bytecode nutzen die Abstände nur die
+  Leiste (`drawToolbar`, `toolbarTop`, `toolbarHeight`, `toolbarIndex`, `isInsideToolbar`, ihr Ziehen in
+  `movePointer`) und den Standardplatz des Zahnrads (`gearRect` nur bei `settingsX/Y` NaN); ein gespeicherter Platz
+  des Zahnrads und alle Knöpfe bleiben Anteile des ganzen Fensters. Wie vereinbart.
+- **Eingebaut:** `TouchControls.setSafeInsets` gibt die Abstände der Aussparung bei jeder Änderung (auch nach dem
+  Drehen um 180°) an `RetroTouchView.setSafeInsets`. Die Umrechnung (`TouchFrame`) bleibt: gespeicherte Plätze des
+  Zahnrads rechnet sie wie bisher um, der Standardplatz folgt jetzt von selbst der Kamera-Seite.
+- Releasetext: die Known-issues-Zeile zur Leiste über die volle Breite gestrichen, unter Fixed „The touch editor's bar
+  and the gear keep clear of the camera hole (RetroTouch 1.0.0-beta.11).“
+- **Geprüft am PC:** App-Tests 176 je Variante grün (Core und Classic); neu in `TouchFrameTest`: RetroTouch bekommt die Abstände links, nach dem
+  Drehen rechts und ohne Kamera wieder 0; der Standardplatz des Zahnrads rückt um den Streifen nach innen, ein
+  gespeicherter Platz bleibt (auch im Streifen).
+- **Nicht geprüft:** auf einem Gerät mit Kameraloch (Leiste, „DRAG“-Zeile und Zahnrad neben der Kamera).
+
+## Version 0.99.16-rc (veröffentlicht, Branch `09916`, Basis 507e72b1; Tag 0.99.16-rc = 650b543e)
+
+„sorry 0.99.15 ist ja schon released, wir sind schon bei 0.99.16“ (Projektinhaber, 14.11.2026): 0.99.15-rc ist bei
+den Testern (Stand f193f9e0); alles danach gehört zu 0.99.16, einer Version mit Fehlerbehebungen unter dem
+Feature-Freeze. Version 0.99.16-rc (versionCode 118), Releasetext `port/android-decomp/docs/releases/v0.99.16-rc.md`
+(„Changes since v0.99.15.“, Known issues aus 0.99.15 übernommen). Nächste freie Patchnummer weiter 0233.
+
+- **Bisher drin:** die Rücknahme der Kamera-Aussparung (c14ec500, Abschnitt 3 von 0.99.15), Texture Packer 1.4 für
+  Windows mit Fenster und die Android-Packer-App 1.4 nur Englisch (Branch `converter-tool`, oben), die README des
+  Projektinhabers (9f9f74fe).
+- `v0.99.15-rc.md` hat die Zeile zur Kamera-Aussparung wieder: 0.99.15 wurde mit dieser Änderung veröffentlicht.
+- Der Tag `0.99.15-rc` auf GitHub zeigte erst auf 62f8e946 (denselben Commit wie `0.99.14-rc`); die Hauptsitzung hat
+  ihn mit dem OK des Inhabers am 14.11.2026 auf f193f9e0 verschoben.
+
+## Version 0.99.15-rc (veröffentlicht 14.11.2026, Branch `09915`, Basis 62f8e946 = Release 0.99.14-rc; Stand f193f9e0)
+
+Version 0.99.15-rc (versionCode 117), Releasetext `port/android-decomp/docs/releases/v0.99.15-rc.md` („Changes since
+v0.99.14.“, Known issues aus 0.99.14 übernommen). Nächste freie Patchnummer 0233 (0232: „Sanftere QTEs“, Abschnitt 4). Aufgaben 1–3 nur App; ab Abschnitt 4
+auch der Spielkern (Touch-Aufsetzen, Patch 0232).
+
+### 1. Spieldaten als ZIP, „Alle Daten löschen“, „Quelle und Updates“ (Projektinhaber, 14.11.2026)
+
+„Im Ingame Menu unter "Management": 1. Unter "SPEICHERKARTE" mach neben "Spieldaten exportieren (.gci)" auch einen
+Button "Spieldaten exportieren (.zip)" der alle aktuellen Daten inklusive den Einstellungen von RetroTouch in ein ZIP
+speichert, das dann auch unter "Spieldaten importieren" wieder importiert werden kann. Als vierten Button baue einen
+dezent rötlichen Button "Alle Daten löschen" ein, bei Klick soll auch wie bei den Mercenaries-Cheats ein Popup
+erscheinen mit zwei Button "Abbrechen" und "Löschen" … 2. ganz unten benenne "QUELLE" um auf "QUELLE UND UPDATES".“
+
+- **Speicherkarte, vier Knöpfe im 2×2-Raster** (`CoreMenu.management`): „Spieldaten exportieren (.gci)“,
+  „Spieldaten exportieren (.zip)“, „Spieldaten importieren (.gci, .zip, .raw)“, „Alle Daten löschen“ (dezent rot wie
+  der grüne Benchmark-Knopf: `WIPE_RED` 0xff3a2321, Rand 0xff6e3c37, Schrift 0xffe2c7c2). Der .zip-Knopf geht auch ohne
+  Spielstände (Einstellungen, Touch-Layout), nicht während die Karte belegt ist. Hilfetext erklärt beide Exporte und
+  das Löschen.
+- **ZIP (`PlayerBackup`, Format 1):** `CubeEvil4-backup.json` (Kennung `cubeevil4_backup`, App-Version und
+  versionCode, Gerät `Build.MANUFACTURER`/`MODEL`, Zeit, Inhalt), `memory-card/<Dolphin-Name>.gci` je Datei der Karte
+  (wie der .gci-Export), `CubeEvil4-touch-layout.json` (RetroTouch-Layout wie bisher, `TouchLayoutFile`),
+  `instant/slot-0.ce4save` (der Instant-Spielstand, geprüft wie `instant_store.cpp readSlot`: Kennung, Format 1, Größe,
+  beide CRC) und `CubeEvil4-settings.json` (Kennung `cubeevil4_settings`, je Gruppe jeder Schlüssel mit Typ:
+  `core_input` Steuerung mit den Touch-Schaltern, `core_game` Sprache/Cheats/Zufallsgegner, `core_graphics` Grafik und
+  Lautstärke, `core_log` Fehlerprotokoll-Schalter, `retrotouch_layouts` ohne die Layouts = RetroTouchs Knopfstil
+  `button_style_cubeevil4`). Nicht drin: Discs, HD-Texturpaket, Shader-Speicher, Protokolle, Vulkan-Startwächter,
+  gelernte Tonpuffer (`core_audio`), die alte ARM64-App („game-options“). Dateiname-Vorschlag
+  `CubeEvil4-backup-JJJJMMTT-HHMMSS.zip` (Android-Dateiauswahl „Speichern unter“); ein halb geschriebenes ZIP wird
+  gelöscht.
+- **Import (`SaveImport.read`, `CoreActivity.importNext`):** wie bisher .gci, Dolphin-Karte (.raw/.gcp) und ZIPs davon;
+  dazu Manifest, Einstellungsdatei und Instant-Spielstand (auch einzeln gewählt). Reihenfolge: Spielstände (vorhandene
+  Datei: Ersetzen/Überspringen wie bisher), Touch-Layout (wie bisher), Instant-Spielstand (vorhandener anderer:
+  Ersetzen/Überspringen; geschrieben neben die Datei und umbenannt), Einstellungen (nur wenn sie sich unterscheiden:
+  Frage Ersetzen/Überspringen), Bericht; nach übernommenen Einstellungen „Neu starten“ / „Später“ (Renderer, Sprache und
+  die Werte, die die Activity hält, wirken erst nach dem Neustart).
+- **Einstellungen zurück (`PlayerBackup.plan/apply`):** Schlüssel für Schlüssel. Anderer Typ als in dieser App:
+  ausgelassen; aus einer neueren Version (versionCode größer) nur Schlüssel, die es hier schon gibt; ein Schlüssel
+  dieser App, den das ZIP nicht hat, geht auf den Standard zurück (der Stand des ZIPs wird hergestellt). Von einem
+  anderen Gerät bleiben die **Leistungs-Einstellungen** dieses Geräts (`PlayerBackup.performance`: die Profil-Werte
+  `PerfProfile.KEYS`, `scale`, `frameskip`, `cpuSkip`, `mergeDraws`, `vertexRing`, `vkBandwidth`, `renderer`,
+  `dynamicCap30/60`, `hdTextures`/`hdHalf`, alles mit `perf…`/`bench…`); Lautstärke, Bildstil, Anzeigen und Steuerung
+  kommen mit. Ein ZIP von 0.99.14 oder älter gibt es nicht (dort nur Ordner-Export); ein gepackter Export-Ordner von
+  0.99.14 importiert weiter. Eine 0.99.14 nimmt aus dem neuen ZIP Spielstände und Touch-Layout, der Rest gilt als
+  „other files left out“.
+- **„Alle Daten löschen“ (`CoreMenu.askWipe`, `PlayerWipe`):** Frage im roten Stil der Spielfiguren-Warnung
+  (`warnCharacter`): Titel, Text (was gelöscht wird, was bleibt: RetroTouch, Discs, HD-Texturen, App-Einstellungen;
+  nicht rückgängig; vorher als .zip exportieren; das Spiel startet neu), „Abbrechen“ (Fokus) und „Löschen“ (rot). B,
+  Zurück, START, SELECT brechen ab. „Löschen“: Wunsch merken (`player_wipe/wipeAtStart`), Neustart ins Spiel wie beim
+  Renderer-Wechsel (`restartIntoGame`, neuer Prozess; der Kernprozess endet mit). Beim nächsten Start **vor**
+  `CoreBridge.start` löscht `PlayerWipe.prepare` `game/memcard/card-a.bin` und `game/instant/slot-0.ce4save` (samt
+  `.tmp`/`.import`); geht Löschen nicht, wird die Datei geleert. Der Kern legt dann eine neue Karte an, formatiert und
+  leer wie beim allerersten Start (`memcard.cpp insert`). Gewählt statt Formatieren im laufenden Spiel: das Spiel hält
+  Kartenverzeichnis und Systemdaten im Speicher und hätte sie beim nächsten Speichern zurückgeschrieben.
+- **„Quelle“ → „Quelle und Updates“** (Englisch „Source and updates“), Zusammenfassung „Speicherkarte, Discs,
+  Berichte, Quelle & Updates“; 20 neue Texte, 1 Pluralform, alle 11 Sprachen (`check_translations.py` 440 Texte ohne
+  Befund). Die neue Frage sagt „Abbrechen“; die älteren Fragen der App sagen weiter „Abbruch“ (`ingame_cancel`;
+  seit 0.99.18 auch „Abbrechen“, Abschnitt 1 von 0.99.18).
+- **Geprüft am PC:**
+  - App-Tests beider Varianten je 146 grün (Core 0, Classic 2 übersprungen). Neu `PlayerBackupTest` (12): Einstellungen
+    mit allen Typen zurück, Vulkan-Wächter und RetroTouch-Layout nicht in der Datei, Standard für Fehlendes, anderes
+    Gerät behält Auflösung/Renderer/Profil/Dynamik-Grenze/Benchmark und übernimmt Lautstärke/CRT/Touch, neuere Version
+    und falsche Typen ausgelassen, Instant-Spielstand-Prüfung, **Rundlauf Export → Alle Daten löschen → Import** (alle
+    Teile wieder da, Einstellungen gleich), 0.99.14-Import des neuen ZIPs (nur die .gci), alter Export-Ordner als ZIP,
+    Einstellungen allein, Löschen ohne Dateien. `CoreMenuLayoutTest` neu: vier Knöpfe in dieser Reihenfolge, .zip ohne
+    Spielstände an, Frage mit Fokus auf „Abbrechen“, Abbrechen und B lassen alles, Löschen ruft den Host; die
+    Sprachprüfung aller Seiten jetzt auch mit Indonesisch („in“ fehlte dort).
+  - Mit dem Spielkern (i686 -O2 aus `~/p09914/kern`, Debug-Discs, Datenordner ohne `RE4_MEMCARD`, Skript
+    `09915-wipe_test.sh` im Notizordner, Ergebnis `builds\09915\wipe-test-core.txt`): A neue Karte, Systemdatei angelegt,
+    Datei 1 in r100 gespeichert; A2 das Spiel läuft auf dieser Karte, die Datei wird gelöscht, das Spiel speichert
+    danach noch: keine Kartendatei danach (es schrieb nur in die gelöschte); B nächster Start: „made (… formatted,
+    empty)“, „files: none; 251 of 251 blocks free“, die Startprüfung legt die Systemdatei neu an, Speichern geht,
+    keine „broken / not formatted“-Meldung.
+  - Bilder aller 11 Sprachen (Management, Frage, Fokus auf „Alle Daten löschen“) in
+    `E:\Development\Android\builds\09915\menu\`, die deutschen und englischen auch in `builds\09915\`.
+- **Nicht geprüft:** auf einem Gerät (Android-Dateiauswahl beim Speichern des ZIPs, der Neustart nach „Löschen“ und
+  nach dem Einstellungs-Import, Import eines ZIPs von einem anderen Gerät); der Instant-Spielstand-Import mit dem echten
+  Kern (nur die Dateiprüfung und das Schreiben in Java).
+
+### 2. Prüfung von 0.99.14 (Dynamisch, Benchmark, Bloom) und der App (Auftrag der Hauptsitzung, 14.11.2026)
+
+Eine unabhängige Durchsicht der Änderungen 8cb8d672 und 62f8e946 (Unteragent, nur gelesen) und die eigene der neuen
+Management-Teile.
+
+- **Behoben: Vulkan zählte jede Bildwiederholung als Bild** (`gx_vk.cpp`, Fehler aus 0.99.14). `ReadGpuTime` gab die
+  Zeit jedes Frames an `GxStats::gpuMicros/gpuTimed`; `Present` beginnt aber auch ohne neuen Chunk einen Frame (30 FPS
+  auf 60 Hz: jede zweite Wiederholung), dessen gemessene Arbeit fast 0 ms ist (die Zeitmarke endet in `SubmitWork`,
+  vor den Bildschirm-Befehlen). Bei 30 FPS las „Dynamisch“ so etwa die halbe GPU-Zeit je Bild: eine zu schwere Stufe
+  galt als „GPU nicht am Limit“ (`gx_auto_level.h` Zeile „pictures late, but the GPU not at its limit“), die Stufe
+  ging kaum herunter, und der Schritt nach oben schätzte doppelt zu günstig; die Prüfung des Benchmarks für 30 FPS
+  (`kGpuReserve`) griff unter Vulkan kaum; mit 60 FPS lasen Pausen des Taktgebers ebenso halb. OpenGL war nicht
+  betroffen (sein Zeitmesser misst nur die Runs). Jetzt merkt sich ein Frame, ob ein Run (Chunk oder Zwischenbild) in
+  ihm lief (`Frame::ran`, gesetzt in `RunBegin`, bei einem Submit mitten im Chunk weitergegeben); nur dann zählt seine
+  Zeit als Bild, sonst als `presentMicros/presentTimed` (wie GLs eigener Zeitmesser für die Wiederholungen). Die
+  Protokollzeile „GPU work … ms a picture“ zählt weiter alle Frames (vergleichbar mit älteren Berichten).
+- **Behoben: Gedächtnis der Räume über 60 ↔ 30 FPS** (`gx_auto_level.h`). Sind die Benchmark-Stufen für 30 und 60 FPS
+  gleich (ohne Benchmark immer: die Bildschirm-Stufe), startet beim Umschalten kein neuer Renderer, und eine Stufe, die
+  mit 60 FPS in einem Raum nicht hielt, blieb dort auch mit 30 FPS bis zu 10 Minuten gesperrt. Jetzt vergisst
+  `AutoLevel::Chunk` das Gedächtnis, wenn sich die Bildzeit ändert (`Sample::sixty`), und wertet das Fenster über den
+  Wechsel nicht (`Restart`).
+- **Gelesen und in Ordnung:** Bloom unter GL und Vulkan (Texturen, kein Lesen und Schreiben derselben Textur, der 1×1-
+  Durchgang liest im Bild, keine Textur der Größe 0, GL-Zustand nach dem Bloom wieder gesetzt, Vulkan legt und räumt
+  `bloomKeyImg`/`bloomImg[2]` gleich an und ab, Mischart 3 richtig); Mali ohne Zeitmesser (die Zäune entscheiden wie
+  bisher); `setDynamicCaps` (atomar); `StartLevel`/`Start`; das einmalige Neu-Messen nach dem Update
+  (`redoDue`/`scheduleRedo`, `BENCH_RESERVE`); `CoreMenu.dynamicTop`; das Warten des Benchmarks auf freies Spiel.
+- **Nicht geändert (klein):** `gReadyWait` in `port/whole/runtime/benchmark.cpp` wird vom JNI-Faden geschrieben und vom
+  Spielfaden gezählt, ohne `std::atomic` (wie das ältere `gLogoWait`; praktisch ohne Folgen, ein Umbau bräuchte einen
+  neuen Kern-Bau). Das erste Fenster nach einem Neustart zählt seinen Eröffnungs-Chunk mit (+0,5 Bilder/s, seit 0.99.13).
+- **Menütexte:** alle Seiten in 11 Sprachen (jetzt mit Indonesisch, das in `allPagesFitAcrossLanguagesWidthsAndFontScales`
+  fehlte), Breiten 320–960 dp, Schriftgrößen 1×/1,5×/2×: keine Überlappung. „4:3“ im Spiel: der Weg aus 0.99.10
+  (`SetWiden(1)`, Kästen und Texte in derselben Form) ist seitdem unverändert, nicht neu angespielt.
+- **Geprüft am PC:** `gx_gl_check` (WSL `~/re4-09914/port/build/app-host-vk`, lavapipe) GL und Vulkan 0 Fehler; neu
+  `TestVkGpuTimePictures` (12 Chunks mit je einer Wiederholung ohne Chunk: 12 Bilder gezählt, 14 Wiederholungen getrennt; mit dem alten `gx_vk.cpp` 26 „Bilder“ für 12
+  Chunks, der Test schlägt fehl) und der Fall 60 → 30 FPS in
+  `TestAutoLevelGpu` (mit dem alten `gx_auto_level.h` „1 failed“, neu 0); Regelprüfung `RE4_CHECK_RULES=1` 0 Fehler;
+  NDK-Bau `:app:externalNativeBuildCoreDebug` (armeabi-v7a, arm64-v8a) ohne Fehler, keine neue Warnung.
+- **Nicht geprüft:** auf einem Gerät (Vulkan mit 30 FPS und „Dynamisch“ in einem schweren Raum).
+
+### 3. Moto G22: das Spiel füllt den Bildschirm nicht, „die Kameraleiste bleibt sichtbar“ (Nutzerbericht, 14.11.2026)
+
+„I can now play RE4 at 30 FPS on my Moto G22. However, it doesn't go into full screen, the camera bar remains
+visible.“ Bild `E:\Development\Android\reports\09915-moto-g22-cutout\moto-g22-ingame.png` (1280 × 576, 20:9,
+Bildformat „Gestreckt“ oder „Nativ“: Minikarte 23 Pixel vom linken Fensterrand): links ein schwarzer Streifen von
+etwa 76 Pixeln (beim Telefon 1600 × 720 etwa 95), keine Status- und keine Navigationsleiste.
+
+- **Ursache:** `CoreActivity` setzte keinen `layoutInDisplayCutoutMode`; im Querformat hält Android ein Fenster dann von
+  der kurzen Kante mit der Kamera fern (Standard-Modus). Nur `StartupActivity` (alte App) setzte ihn. Die Leisten
+  waren in Ordnung (der Vollbildmodus wirkt).
+- **Behoben (`Cutout.java`, `CoreActivity`, `CoreMenu`):** das Spielfenster reicht über die Kamera-Kante (ab Android 11
+  `ALWAYS`, auf 9 und 10 `SHORT_EDGES`), das Bild füllt den Bildschirm wie das Bildformat sagt. Die Touch-Ebene wird
+  um die sicheren Abstände der Aussparung eingerückt (Ränder der Ansicht, bei jeder neuen Einrückung, auch nach dem
+  Drehen um 180°): die Knöpfe liegen genau dort, wo sie vorher waren, ein gespeichertes Layout bleibt gleich (die
+  Tipp- und Wisch-Koordinaten rechnen schon mit der Lage im Fenster). Die FPS-Anzeige hält über `CornerInset` Abstand
+  zur Aussparung; das App-Menü rechnet seine Größe ohne den Streifen (seine Fragen und Fenster behalten Androids
+  Standard und bleiben von der Kamera weg). Auf Autos unverändert (`CarDisplay` polstert selbst).
+- **Bildformate auf 20:9 (gerechnet mit `minimap_view.h`, `09915-cutout_formats.cpp` im Notizordner; 1600 × 720 mit 95,
+  2400 × 1080 mit 120, 2340 × 1080 mit 110 Pixeln Streifen, links oder rechts gleich):** „16:9“, „4:3“, „4:3 (GC)“:
+  Bild und Anzeigen ganz außerhalb des Streifens (wie vorher, jetzt mittig auf dem ganzen Bildschirm). „Gestreckt“ und
+  „Nativ“: das Bild über die volle Breite; Minikarte (unten links) und Lebensanzeige (unten rechts) 28–43 Pixel vom
+  Rand, also innerhalb der Streifenbreite, aber unten. Beim Moto G22 sitzt das Kameraloch mittig an der Kante (bei
+  1600 × 720 etwa Zeilen 310–410), die Minikarte reicht von Zeile 498 bis 692: frei. Bei einem Kameraloch in einer
+  Ecke (selten, z. B. Galaxy S10) könnte in „Gestreckt“/„Nativ“ in einer der beiden Lagen eine der Anzeigen darunter
+  liegen; dann „16:9“ wählen oder das Gerät drehen.
+- **Geprüft am PC:** App-Tests 149 grün (neu `CutoutTest`: Modus `ALWAYS` ab Android 11, `SHORT_EDGES` auf 10, sichere
+  Abstände links und nach dem Drehen rechts, ohne Aussparung 0).
+- **Nicht geprüft:** auf einem Gerät mit Kameraloch (das Bild über die Kante, die Touch-Knöpfe, das Drehen um 180°,
+  das App-Menü).
+- **Wieder ausgebaut (Entscheidung des Projektinhabers, 14.11.2026, über die Hauptsitzung):** „die änderung bezüglich der
+  notch-area dürfte probleme bereiten … ich denke es wäre besser die änderung dazu wieder auszubauen.“ Auf seinem
+  Telefon (Kamera links im Querformat) reichte das Bild bis zum Rand, die Touch-Knöpfe und die Leiste des
+  Touch-Editors blieben aber etwa 110 Pixel vom linken Rand weg (die Einrückung oben). `Cutout.java`, `CutoutTest` und
+  die Stellen in `CoreActivity` und `CoreMenu` sind entfernt (in 0.99.16; 0.99.15 war schon veröffentlicht), das
+  Verhalten ist wieder das von 0.99.14 (auf der
+  Kamera-Seite ein schwarzer Streifen, Touch-Knöpfe bis zu dessen Rand). Seine zweite Beobachtung, schwarze Ränder
+  links und rechts in der Speicherliste beim Laden trotz „Nativ“, kommt nicht von der Aussparung: die Ränder sind
+  gleich breit (ein 16:9-Kasten), und „Nativ“ zeigt Menüs, das Zielfernrohr und Filme mit Absicht im 16:9-Kasten,
+  nur das 3D beim Spielen wird breiter (`core_mode.cpp`, `re4mm::Native`, seit 07.11.2026). Geprüft am PC: App-Tests
+  153 je Variante grün (156 ohne die drei `CutoutTest`).
+- **Erledigt, ohne Änderung (Entscheidung des Projektinhabers, 14.11.2026):** „das moto problem kannst du streichen,
+  der user schaltet manuell am handy etwas um damit spiele die notch nutzen können.“ Der Nutzer schaltet in den
+  Einstellungen seines Telefons ein, dass Apps den Bereich der Kamera-Aussparung nutzen dürfen. Nicht auf der Liste
+  für 1.1.
+
+### 4. QTEs in Professional entschärfen (Projektinhaber, 14.11.2026)
+
+„Noch ein weiteres Feedback zu den QTEs im Pro Modus. Mit Touch Bedienung nicht zu schaffen und mit Controller gerade
+noch schaffbar. Können wir das entschärfen?“
+
+- **Was Professional ändert (Code-Studie, Unteragent und eigene Suche, Skript `09915-qte_scan.py` im Notizordner):**
+  Der Rang `pG->Game_level` (1..10) setzt die QTE-Werte; Normal rechnet ihn aus den Punkten (Start 5, vor Bossen
+  mindestens 5), Professional hält ihn fest auf 10 (`game.cpp GameAddPoint`). Die meisten Stellen kennen vier Gruppen
+  (0–3, 4–6, 7–9, 10). Unterschiede Normal (Rang 5) → Professional (Rang 10):
+
+  | QTE | Normal (Rang 5) | Professional | Stelle |
+  |---|---|---|---|
+  | Salazars Statue, Lauf-Tippen (Abstand ohne Abfall) | ≤ 5 Bilder | ≤ 3 | `r226.cpp` ButtonCount |
+  | Felsbrocken, Lauf-Tippen | ≤ 8 | ≤ 5 | `emrock.cpp` plemRockEscape |
+  | Schwimmen nach Del Lago | ≤ 8 | ≤ 4 | `pl0f.cpp` plboat_R2_Swim |
+  | Lore, Hochklettern (Drücke in 90 Bildern) | 10 | 15 | `objTrolley.cpp` plobjTrolleyEscape |
+  | Krauser Messer am Hals (Drücke vor der Aufforderung) | 10 | 15 | `em39` KnifeHit |
+  | Krauser Viererkombo (Bilder bis zur Aufforderung, das Fenster endet am Treffer) | 12/8/10/11 | 15/11/13/14 | `em39` Knife4Atk |
+  | Krauser Arm (Verzögerung) | 6 / 15 | 9 / 18 | `em39` T_ATK_INIT, T_LongAtk, T_JumpAtk |
+  | Krauser Tritt (Verzögerung / Taste) | 10 / A+B | 15 / zufällig | `em39` T_LowKickHit |
+  | Krauser Klippe (A-Drücke) | 11 | 16 | `em39` T_CliffAtk |
+  | El Gigante Parasit (Verzögerung / Zuwachs je Druck) | 45 / 8 | 55 / 4 | `em2b` Dm_Parasite, plem2b_AtkParasite |
+  | U-3 Vorstoß / Decke (Fenster) | 25 / 25 | 20 / 20 | `em32` LongAtk, em32Timer2SetW (C_Atk) |
+
+  Gleich in Normal und Professional: Würgegriffe (`PlGachaGet`, nur Rang ≤ 2 leichter), Verdugo, Mendez, Salazar,
+  normale Ganados und alle einfachen A-Aufforderungen, Kurbeln, Zwischensequenz-QTEs. Schaden (`LifeDownSet2`,
+  0,5 + 0,1 × Rang: Professional 1,5×) und der Sofort-Tod im Griff von hinten bleiben unangetastet (Wunsch: Schaden und
+  Gegner wie Professional).
+- **Gebaut: „Sanftere QTEs (Professional)“** unter Steuerung → Komfortsteuerung, **Standard an** (Entscheidung des
+  Projektinhabers, 14.11.2026: „Ja, an lassen“), Texte in 11 Sprachen. Patch 0232 (74 Stellen in `r226`, `emrock`, `pl0f`,
+  `objTrolley`, `em39`, `em2b`, `em32`) lässt nur diese QTE-Abfragen `re4_qte_level()` lesen (`runtime/qte_touch.cpp`):
+  der Rang des Spiels, mit dem Schalter in Professional höchstens 5 (Normals Start). Leitung: `CoreBridge.setGentleQte`
+  → `re4_core_set_gentle_qte` (eigener Prozess: `kSetGentleQte` 45). Die erste entschärfte QTE schreibt eine Zeile ins
+  Protokoll („reads rank 10 as 5“). PC-Schalter `RE4_GENTLE_QTE=1`.
+- **Touch-Weg (für alle Schwierigkeitsgrade behoben):** ein Tipp zählte für die QTE erst beim Abheben des Fingers
+  (`watchTap` ACTION_UP; die Dauer des Tipps, etwa 80–150 ms, ging verloren), ein zweiter Finger gar nicht. Jetzt
+  drückt jeder Finger, der neben den Touch-Knöpfen aufsetzt, sofort (`CoreBridge.touchDown`, `re4_core_touch(-2, -2)`);
+  der Tipp beim Abheben geht nur noch an die Untermenüs (`u + 2`; eine ältere App: beides wie bisher). Zwei Daumen im
+  Wechsel tippen damit doppelt so schnell. Unverändert, weil passend: der Druck kommt im nächsten Spielbild (nicht
+  später), Mash-Tipps höchstens alle 2 Bilder (15 je Sekunde, Professional braucht an der Statue einen alle 3 Bilder),
+  ein Tipp gilt 400 ms (nur wichtig, wenn er vor der Aufforderung kam).
+- **Geprüft am PC:** Kern i686 -O2 (`whole_build.sh`, Baum `~/re4-09915`, Skript `09915-sync_wsl.sh`): 0 Fehler, 114 Module ohne offene Verweise; die Module `em2b`, `em32`, `em39`, `pl0f`, `st2_3` (r226) und der Hauptteil (`emrock`, `objTrolley`) rufen `re4_qte_level` auf (nm);
+  `runtime-test qtetouch` mit den neuen Fällen (Aufsetzen drückt L+R zwei Bilder, Abheben drückt nicht noch einmal, ein
+  alter Tipp drückt wie bisher) und neu `qtelevel` (Professional mit Schalter 5, ohne 10; Normal 9 und 2 und Easy 7
+  unverändert; die Protokollzeilen) ok; `whole_build_android.sh --abi all` (armeabi-v7a und arm64-v8a) 0 Fehler, Stubs
+  wie erwartet; App-Tests 149 grün je Variante (die Komfortsteuerung mit der neuen Zeile in allen Sprachen und Breiten), NDK-Bau ohne neue Warnung; `check_translations.py` 442 Texte ohne Befund.
+- **Nicht geprüft:** eine QTE in Professional im laufenden Spiel (am PC kein Spielstand an einer dieser Stellen
+  gespielt; der Patch ist an den Stellen geprüft, die Werte aus dem Code gelesen); auf einem Gerät (Touch-Tipps, der
+  Schalter).
+
+### 5. Vier Optimierungsideen eines Nutzers (nur geprüft, nichts gebaut; Projektinhaber, 14.11.2026)
+
+Ideen: (1) Hintergrundarbeit verschieben, Rechnungen nicht wiederholen, weg vom Hauptfaden; (2) GPU-Mittel
+wiederverwenden, weniger Spitzen; (3) Fäden auf passende Kerne, Priorität für die wichtigen; (4) auf die Temperatur
+achten (Androids Thermalstatus).
+
+- **(1) Schon da:** Spiel, Zeichnen und Ton laufen in eigenen Fäden (der Kern auf manchen Geräten in einem eigenen Prozess), der
+  Bildtakt in einem eigenen Faden (0.98.5); der Hauptfaden macht im Spiel nur leichte Arbeit zweimal je Sekunde
+  (`CoreActivity.tick`: Touch-Anzeige, FPS-Zeile, Hänger-Prüfung). Shader bleiben zwischen den Starts
+  (`ShaderCache`), werden in Bildern ohne neuen Chunk zeitlich begrenzt vorbereitet (`Prewarm`, 4 ms, im Menü 10 ms),
+  Vulkan baut die Pipelines der App-Liste vorab in einem Faden niedriger Priorität (`gx_vk.cpp`, `setpriority` 10).
+  Frame-Skip Normal/Aggressiv und Potato-Modus entlasten schwache Prozessoren. **Offen und echter Gewinn:** HD-Texturen
+  werden beim ersten Zeigen eines Raums auf dem Zeichenfaden geladen (Ruckler, Known issue) – das Laden im Hintergrund
+  ist T4 auf Branch `textures`, schon geplant. **Urteil:** erledigt bis auf T4 (Später, ohnehin geplant).
+- **(2) Schon da:** Texturen bleiben im Cache (`GxCore`, nur beim Reset verworfen), Uniform- und Vertex-Puffer laufen
+  als Ringe (Vertex-Ring wählbar für Mali), Vulkan nutzt die Blöcke und Descriptor-Pools je Frame wieder und gibt Altes
+  erst frei, wenn die GPU fertig ist (`trash`), HD-Pakete haben ein Speicherbudget und „Schärfe: Halb“. Render-Ziele
+  werden nur bei einem Auflösungswechsel neu angelegt; „Dynamisch“ wechselt seit 0.99.14 viel seltener (im Bericht
+  des Projektinhabers 34 → wenige Schritte). **Urteil:** erledigt; die verbleibenden Spitzen sind wieder T4.
+- **(3) Schon da:** Leistungskerne (`re4_cpu_info.h` `KeepOffSlowCores`: Spiel- und Zeichenfaden von den langsamen
+  Kernen, bei drei Kernarten der schnellste allein für den Zeichenfaden, `FastestCoresNow` folgt dem erlaubten Takt),
+  Hilfsfäden auf langsame Kerne, wo nur zwei schnelle da sind (`PutOnSlowCores`), Androids Leistungshinweis
+  (`APerformanceHint`, Android 13+, für Spiel-, Zeichen- und Eckpunkt-Fäden), Eckpunkte auf mehreren Kernen
+  (`gx_decode.cpp`), Prioritäten (Bildtakt `URGENT_DISPLAY`, Ton `AUDIO`, Tonzulieferer im Kern −16). Der Benchmark
+  misst den Prozessoranteil des Spielfadens (0.99.12). **Urteil:** erledigt, nichts Wesentliches offen.
+- **(4) Teilweise:** der erlaubte Takt der Kerne wird gelesen (Drosselung; jede Benchmark-Stufe protokolliert ihn),
+  „Dynamisch“ geht herunter, wenn das Gerät nicht mehr mithält (auch wenn es heiß wird), und erst mit Reserve wieder
+  hoch; der Leistungshinweis lässt Android den Takt rechtzeitig anheben. Androids Thermalstatus
+  (`PowerManager.getCurrentThermalStatus`, ab Android 10; `getThermalHeadroom`, ab Android 11) wird **nicht** gelesen.
+  Im Bericht des Projektinhabers (Retroid, 13.11.2026, 25 min) blieb der erlaubte Takt immer am Maximum: dort keine
+  Hitze-Drosselung. **Vorschlag (klein, Ja):** den Thermalstatus und die Reserve alle paar Sekunden ins Fehlerprotokoll
+  und in den Bericht schreiben (etwa ein halber Tag, kaum Risiko); damit sieht man bei Meldungen „wird nach 20 Minuten
+  langsam“, ob das Gerät heiß war. **Später:** darauf reagieren (z. B. „Dynamisch“ früher eine Stufe herunter, Bloom
+  aus), erst wenn Berichte es zeigen.
+- Englische Antwort an den Nutzer im Bericht an den Projektinhaber.
+- **Gebaut (Entscheidung des Projektinhabers, 14.11.2026: „Ja, einbauen“): `ThermalWatch`.** Nur Anzeige, nichts wird
+  geändert. Androids Thermalstatus (ab Android 10) beim Start und bei jeder Änderung ins Protokoll („thermal: status
+  moderate after 12:30“, über Androids Rückruf), die Reserve bis zur harten Drosselung (`getThermalHeadroom`, ab
+  Android 11, 10 s Vorschau) alle 10 s aus `CoreActivity.tick`; eine Zeile, wenn sie sich um 0,05 bewegt, ab 0,7 einmal
+  je Minute. Der Bericht bekommt `thermal.txt` (Status jetzt und höchster, letzte und höchste Reserve, alle
+  Statuswechsel, die letzten 90 Messungen = 15 min); er gilt auch, wenn logcat auf einem Gerät nichts aufzeichnet.
+  Test `ThermalWatchTest` (6, mit nachgebauter Quelle). Nicht auf einem Gerät geprüft.
+- **Nachgelegt (Auftrag 7 der Hauptsitzung, gleicher Tag):** der Bericht nennt zum höchsten Status und zur höchsten
+  Reserve den Zeitpunkt („moderate (at +12:30)“, Zeit seit dem Spielstart); ohne Status (Android 9 und älter) und ohne
+  Reserve (Android 10, oder das Gerät liefert keine; nach drei leeren Messungen) je einmal „not available“. Jeder neue
+  Status und jede Messung geht über `CoreBridge.setThermal` an den Renderer (zwei Atomics, kein Aufwand im Spiel-,
+  Zeichen- oder Tonfaden); die Zeilen von „Dynamisch“ (Stufenwechsel und „bleibt unter der Obergrenze“) enden mit
+  „; heat: moderate, headroom 0.71“, so zeigt ein Bericht, ob ein Schritt nach unten mit Hitze kam. Alles läuft auf dem
+  Hauptfaden (Androids Rückruf, `CoreActivity.tick`). Test `ThermalWatchTest` 7 (Rückruf, Zeitpunkte, einmalige
+  Hinweise, `heatText`); NDK-Bau (beide ABIs) ohne neue Warnung, die neue Funktion in beiden Bibliotheken; App-Tests 156 je Variante grün.
+
+### 6. C-Stick, Zoom und Messer mit Touch und Tastatur/Maus (GitHub #247, über den Projektinhaber, 14.11.2026)
+
+„Ein User meldete das noch ein, evtl können wir das noch für 0.99.15 berücksichtigen“ (letzter Punkt vor dem
+Feature-Freeze). Die Behauptungen des Nutzers gegen den Stand 09915 geprüft:
+
+- „Touch hat keinen C-Stick“: falsch. Im Standard-Zielmodus ist die rechte Hälfte (Umsehen) der C-Stick, auch im
+  Zielfernrohr (`CoreInput.pad`: nur beim Modus „Touch-Fläche“ zielt sie); ein eigener Touch-C-Stick lässt sich mit dem
+  Zahnrad hinzufügen (`CoreTouch.C_STICK`, seit 26.10.2026). Der Zoom im Zielfernrohr ist der C-Stick hoch/runter
+  (`cam_extra.cpp`), per Touch also Ziehen nach oben oder unten auf der rechten Hälfte; im Modus „Touch-Fläche“ nur mit
+  dem zusätzlichen C-Stick. Das stand nirgends.
+- „Mit Tastatur und Maus zoomt das Zielfernrohr nicht“: das Mausrad zoomt seit 0.99.12 alle Zielfernrohre (Gewehre,
+  Raketen- und Minenwerfer, jede Figur) und das Fernglas (`runtime/wheel_zoom.cpp`). Tasten dafür gab es nicht.
+- „C-Stick-Richtungen nicht belegbar“: stimmte für die Tastatur.
+- „Das Messer nur mit C halten und WASD“: die Maus richtet das Messer aus, seit die Maus zielt (0.99.12; derselbe Weg
+  wie das Touch-Zielen mit dem Messer seit 0.99.9, `runtime/gyro.cpp turnAim` mit `knifeToo`); der Hilfetext sagte nur
+  „beim Zielen“.
+- **Gebaut:**
+  - **C-Stick auf Tasten** (`ActionMap` C_UP..C_RIGHT = 16..19, nur Tastatur, Standard I/K/J/L, auf der Seite gleich
+    nach den Bewegungstasten, `ActionMap.PAGE`): `CoreInput.pad` legt sie über die Maus, auch im Zielfernrohr und
+    Fernglas (dort zoomen sie: I hinein, K heraus). Eine vor 0.99.15 gespeicherte Belegung bekommt die neuen Tasten,
+    wo sie frei sind (`ActionMap.decode`); eine bewusst leere Richtung bleibt leer.
+  - **Zoom-Knöpfe für Touch** „+“ und „−“ (`CoreTouch.ZOOM_IN/ZOOM_OUT`), wie R3 nur über den Editor (Zahnrad)
+    hinzuzufügen, das Standard-Layout bleibt gleich; gehalten ein Mausrad-Rasten sofort und alle 150 ms
+    (`CoreBridge.zoom`, nur in Zielfernrohr und Fernglas wirksam).
+  - Hilfetexte: Zoomen per Touch (`ingame_touch_zoom_help`), Messer mit der Maus und die C-Stick-Tasten
+    (`ingame_keyboard_c_help`); 6 neue Texte in 11 Sprachen (`check_translations.py` 448 ohne Befund).
+- **Geprüft am PC:** `ActionMapTests` 70, `CoreTouchTests` 311, `CoreInputTests` 1851 Prüfungen (C-Tasten im Pad, auch im
+  Zielfernrohr; alte Belegung; Zoom-Knöpfe an den Host); App-Tests 156 je Variante grün (Core und Classic).
+- **Nicht geprüft:** auf einem Gerät (Tastatur, Zoom-Knöpfe im Editor, Ziehen im Zielfernrohr).
+
+## Version 0.99.14-rc (veröffentlicht 13.11.2026, Branch `09914`, Basis e72b2c80 = Release 0.99.13-rc; Tag 0.99.14-rc = 62f8e946)
+
+Version 0.99.14-rc (versionCode 116), Releasetext `port/android-decomp/docs/releases/v0.99.14-rc.md` („Changes since
+v0.99.13.“, Known issues aus 0.99.13 übernommen). Nächste freie Patchnummer weiter 0232.
+
+### 1. „Der Benchmark und/oder die dynamische Auflösung klappt nicht“ (Projektinhaber, 13.11.2026)
+
+Bericht `E:\Development\Android\reports\09914-benchmark-dynres\` (Retroid Pocket Flip 2, Adreno 650, 0.99.13-rc,
+Vulkan, 60 FPS, HD-Texturen, Profil Hoch; 14:07–14:32): „Mein Retroid hat maximal x3 gemessen mit HD Texturen. Im
+Spiel wurde dann aber mehrmals auf x3,5 hochgeschalten. Flüssiger wäre es wohl mit maximal x2,5 gelaufen … Falls noch
+eingebaut ist, dass auf Basis des gemessenen Maximalwerts noch einmal +0,5 dazugeschalten wird, nimm das weg.“
+Auswertung mit `09914-timeline.py`, `09914-gputime.py` (Notizordner): Stufenwechsel, Räume, Menüs, Filme, Laden,
+GPU-Zeit je Bild aus der Vulkan-Zeile („GPU work … ms a picture“).
+
+- **Ursachen:**
+  - **+0,5:** `core_mode.cpp` setzte die Obergrenze von „Dynamisch“ eine halbe Stufe über das Benchmark-Ergebnis
+    (Wunsch 06.11.2026). Im Protokoll 34 Stufenwechsel in 25 Minuten (15 hoch, 19 runter); 3,5× hielt im Spiel 4 s
+    bis 2,5 min, dann ging es wieder runter.
+  - **Hochschalten ohne Reserve:** mit 60 FPS reichte „10 s jedes Zwischenbild gezeigt“; das zeigt auch eine Stufe,
+    die gerade an ihrer Grenze läuft. GPU je Bild bei 3×: am Steg 14,4–16,3 ms von 16,7 (86–98 %), in r333 15,7–17,0;
+    3,5× braucht etwa 36 % mehr (am Steg 19–24 ms). Die Schritte runter kamen mit 13–73 % fehlenden Zwischenbildern;
+    der nächste Versuch meist 10–20 s später (die Wartezeit wuchs nur bei einem Rückfall innerhalb von 15 s).
+  - **Benchmark ohne Reserve:** 3× „hielt“ am Steg mit 0–9 fehlenden Zwischenbildern in 10 s bei 86–98 % GPU; die
+    drei Läufe des Berichts ergaben 3×, 2,5×, 3× (an der Grenze). 2,5× brauchte 12–12,8 ms (72–77 %). In r333 hielt
+    selbst 2,5× zeitweise nicht (15,4–17,7 ms).
+  - **Falsch gezählte Fenster:** der Abspann-Film (60 Spielbilder je Sekunde, keine Zwischenbilder) zählte als
+    „ruhig“ (2× → 3,5× in 30 s während des Films), ebenso Spielmenüs (30 FPS ohne Zwischenbilder, so gewollt);
+    Laden auf dem Zeichenfaden (HD-Texturen: 20–320 ms je 5 s beim Raumwechsel, Shader/Pipelines) zählte als
+    „Grafikchip zu langsam“; mit 60 FPS entschieden die Zäune allein, und die stehen dort immer bei 0,7–1,0.
+  - **Pause der Zwischenbilder:** der 60-FPS-Taktgeber pausierte sie 5 s, das Fenster danach sah „ruhig“ aus; langsame
+    und pausierte Fenster wechselten sich ab, eine zu hohe Stufe blieb so 8–10 s.
+  - **Benchmark 2 (Prüfung des Vorschlags) startete nicht**, wenn Benchmark 1 aus dem freien Spiel kam (zweimal im
+    Bericht, „not now“): der Kern lehnte den Start 1–3 Bilder nach dem Raumstart ab (`re4_instant_game_ready` noch
+    falsch). Aus dem Titelmenü lief er.
+- **Behoben, „Dynamisch“ (`gx_auto_level.h`, neu geschrieben; `core_mode.cpp`):**
+  - Obergrenze = gemessene Stufe des Benchmarks (30 oder 60 FPS), nichts darüber (Entscheidung des Projektinhabers).
+    Das App-Menü zeigt dieselbe Grenze (`CoreMenu.dynamicTop`).
+  - Neue Messwerte je Fenster (`AutoLevel::Sample`): **GPU-Zeit je Bild** (`GxStats::gpuMicros/gpuTimed`, jetzt auch
+    unter Vulkan aus den Zeitstempeln, `gx_vk.cpp ReadGpuTime`; GL wie bisher, auf Mali nicht), **Ladezeit** des
+    Zeichenfadens (`GxStats::loadUs`: HD-Texturen in `GxCore::UploadHd`, GL-Programme in `ProgramFor`, Vulkan-Shader
+    und -Pipelines in `Module`/`MakePipeline`), Pausen des 60-FPS-Taktgebers, Menübild (`RE4_GX_CHUNK_STILL`,
+    `gameMenuNow`) oder Film (`ChunkRate::Sixty`), Raum. Ein Zeitmesser, der mehr GPU-Zeit meldet als die Uhr erlaubt
+    (über 125 %), gilt als nicht gemessen.
+  - **Nicht gewertet:** Fenster mit 10 % oder mehr Menü- oder Filmbildern, Fenster mit 30 ms oder mehr Laden.
+  - **Langsam:** unter 28,5 Spielbilder/s, über 10 % ohne Zwischenbild, eine Pause des Taktgebers begann oder deckt ein
+    Viertel des Fensters – und der Grafikchip am Limit: mit GPU-Zeit ab 85 % der Bildzeit (16,7 bzw. 33,4 ms), ohne
+    wie bisher Zäune oder Warten im Treiber. Späte Bilder mit freiem Grafikchip (Prozessor, Zeichenfaden) ändern die
+    Stufe nicht; eine Zeile sagt das (auch an der Obergrenze, höchstens alle 10 s). Zwei langsame Fenster: eine halbe
+    Stufe runter.
+  - **Hoch nur mit Platz:** 8 ruhige Fenster (16 s, bisher 10 s); mit GPU-Zeit muss die nächste Stufe geschätzt (GPU-Zeit
+    × Pixelverhältnis) unter 90 % bleiben; frühestens 20 s nach einem Schritt runter (bisher 10 s), ein Rückfall
+    innerhalb von 60 s (bisher 15 s) verdoppelt das, bis 5 min; nach 120 s Halten zurück auf 20 s.
+  - **Gedächtnis je Raum:** eine Stufe, die in einem Raum nicht hielt, wird dort 10 min nicht wieder versucht (auch
+    nicht von einem neuen Renderer: `StartLevel`, er beginnt dort darunter); andere Räume nach der Wartezeit.
+  - **Protokoll:** jeder Schritt mit Grund und Zahlen („level 3x -> 2.5x (two windows of 2 s too slow: … the GPU
+    16.4 ms a picture (98 % of 16.7) … 60 FPS paused 100 % of the window); 3x not tried again in r333 for 10 min; the
+    next step up in 20 s at the earliest“, „level 2.5x -> 3x (16 s steady, room for it: …)“); unter der Grenze alle
+    10 s „stays at … : no room for 3x: about 16.5 ms a picture there (11.5 here) …“ bzw. „did not hold in r333“,
+    „not judged: … a game menu or a movie“, „… loading …“; bei jedem Raumstart „dynamic resolution: 2.5x of 3x, 1 steps
+    down and 0 up so far; remembered: r333 below 3x (40 s ago); now r101“; beim Start „up to 3x, the benchmark's level
+    for 60 pictures a second (nothing above it)“.
+- **Benchmark (`gx_bench_steps.h`, `core_mode.cpp`):** eine Stufe hält nur noch mit **Reserve**: GPU-Zeit im Mittel
+  höchstens 85 % der Bildzeit, wo gemessen (sonst die alten Regeln). Logzeile je Stufe mit „the GPU 15.3 ms a picture
+  (92 % of 16.7 ms)“ bzw. „smooth, but without a reserve (the GPU over 85 %): not stable“. **Mit den Einstellungen des
+  Spielers messen?** Nein (Begründung im Nachtrag von `port/docs/leistungsprofil-plan.md`): Benchmark 1 misst mit den
+  Grundeinstellungen (HD-Texturen sind dabei an, wenn ein Paket an ist), die Profile geben Extras nach Spielraum,
+  Benchmark 2 prüft mit allen; die Reserve ist auch für FXAA und Texturfilter. Ein späterer teurer Schalter braucht
+  keinen neuen Benchmark: „Dynamisch“ geht eine Stufe tiefer und merkt sich den Raum.
+- **Kern (`runtime/benchmark.cpp`):** ein Start aus dem Spiel wartet bis zu 150 Bilder (5 s) auf freies Spiel
+  („benchmark: waiting for free play in r101“, „free play after N frames“), statt sofort „not now“; Zustand bleibt
+  dabei 0 (Gegner nicht angehalten), B/Zurück bricht ab. Ereignis, Menü, Bosskampf: weiter „not now“, 5 s später.
+  Prüfhilfe `RE4_TEST_BENCH` kennt „done+N“ (N Bilder nach dem ersten „done“).
+- **App:** einmal neu messen nach dem Update (`PerfProfile.BENCH_RESERVE` fehlt → `redoDue`, `REDO_RESERVE` 14; auch
+  wer für 0.99.12 schon neu gemessen hat), derselbe Ablauf wie 0.99.12; Popup 1 nennt den neuen Grund
+  (`ingame_bench_redo_text`, 11 Sprachen, zweiter Satz unverändert).
+- **60 FPS für den Renderer aufgegeben** (`smoothTooSlow`): „Dynamisch“ wertet dann wie 30 FPS (33,4 ms je Bild).
+- **Geprüft am PC** (WSL-Baum `~/re4-09914` = e72b2c80 + Arbeitsdateien; Skripte `09914-*` im Notizordner):
+  - `gx_gl_check`: GL 0 Fehler, Vulkan (lavapipe, gebaut mit clang wie bisher) 0 Fehler. Neu: Schnellprüfung nur der
+    Regeln (`RE4_CHECK_RULES=1`). `TestAutoLevel` mit den neuen Zeiten (hoch frühestens 20 s nach einem Schritt
+    runter und nach 16 s ruhig; Rückfall → 40 s; nach 120 s Halten wieder 20 s; schwer–leicht–schwer: zurück auf 2×
+    28,9 s in die leichte Strecke, vorher bis 25 s; 10 min zu schwer: 6 Schritte runter, Wartezeit bis 300 s).
+  - Neu `TestAutoLevelGpu` (simuliertes Gerät mit 60 FPS: GPU-Zeit je Stufe nach Pixeln, ±10 %, der echte
+    Taktgeber der Zwischenbilder): r333 mit 3× bei 16,5 ms → 2,5× in 4 s, dann 12 min kein Versuch auf 3× („no room
+    for 3x“); leichter Raum danach (3× 11 ms) → 3× nach höchstens 21 s, 5 min ohne Schritt; 3× bei 92 % 10 min: kein
+    Schritt; Obergrenze 3,5× über einem 3×, das hält (die Lage von 0.99.13): einmal runter, nie wieder hoch; Film und
+    Spielmenü 60 s unter der Grenze: kein Schritt hoch; Laden mit einem Fünftel späten Zwischenbildern: kein Schritt
+    runter, auch ohne GPU-Zeit (ohne Laden-Angabe und ohne GPU-Zeit: runter wie bisher); Prozessor (25 Bilder/s, GPU
+    halb frei): kein Schritt, die Zeile „not the resolution's doing“; ein Zeitmesser mit 30-facher Zeit: nicht
+    benutzt; Gedächtnis: r333 nach einem schweren Moment 8 min leicht → 3× nicht versucht, nach 10 min wieder; anderer
+    Raum nach der Wartezeit; neuer Renderer mit gleicher Grenze merkt es, `StartLevel` in r333 2,5×, sonst oben.
+  - `TestBenchSteps`: Retroid am Steg mit den Zahlen des Berichts → 4× (30) und **2,5× (60)**, 3× „smooth, but
+    without a reserve“; ohne GPU-Zeit wie bisher 3×; 30er mit 90 % bei 4× → 3,5×; alle alten Fälle unverändert.
+  - **Nachspielung des Berichts** (`09914-replay_extract.py`, `09914-replay_dynres.cpp`, Ergebnis `09914-replay.txt`):
+    Zeitleiste aus dem Protokoll (Räume, Menüs, Filme, Laden, GPU-Zeit je 5–10 s auf 3× umgerechnet), Gerät als
+    Modell (GPU-Zeit ∝ Stufe^1,6, ±20 %, Zwischenbild fehlt, wenn beide Bilder nicht in 33,4 ms passen oder ein Chunk
+    über 8 ms lädt; echter Taktgeber). Alte Regel: 25 runter, 19 hoch, 4,5 % ohne Zwischenbild (Protokoll: 19/15, das
+    Modell trifft die Größenordnung); neue Regel mit den Benchmark-Werten des Berichts (3×/2,5×/3×): 4 runter, 2 hoch,
+    1,0 %; neue Regel mit 2,5× (Benchmark mit Reserve): ein Schritt (r333 2,5× → 2×), 0,3 %.
+  - Kern i686 -O2 (`whole_build.sh i686`): alle Prüfungen grün. Benchmark-Start direkt nach der Rückkehr (Debug-Discs,
+    Debug-Start r101, `RE4_TEST_BENCH`, `09914-bench_runs.sh`): **alter Kern** (0.99.13) 2 Bilder nach dem Raumstart
+    „not now“ (wie auf dem Retroid); **neuer Kern** „waiting for free play in r101“, nach 13 Bildern frei, zum Steg und
+    zurück (auch „done+1“); Start mitten im Eröffnungsereignis von r101: nach 150 Bildern „not now“.
+    `whole_build_android.sh --abi all` 0 Fehler (Stubs wie erwartet).
+  - App: `gradlew :app:externalNativeBuildCoreDebug` ohne Fehler, keine neue Warnung; App-Tests beider Varianten je
+    133 grün (1 bzw. 2 übersprungen), `BenchmarkRedoTest` neu: Neu-Messen auch für Benchmarks von 0.99.12/13, nicht
+    zweimal, nicht mit Reserve-Marke, `dynamicTop`; `check_translations.py` 420 Texte ohne Befund.
+- **Nicht geprüft:** auf dem Retroid (der neue Benchmark, die Schritte im Spiel, der Start von Benchmark 2 aus dem
+  freien Spiel auf dem Gerät, das Neu-Messen nach dem Update); GL mit Zeitmessern auf einem Gerät (nur Vulkan im
+  Bericht); Mali mit OpenGL ES (ohne GPU-Zeit: die alten Regeln mit den neuen Wartezeiten und dem Gedächtnis).
+
+### 2. Bloom im Spiel kaum zu sehen (Projektinhaber, 13.11.2026, über die Hauptsitzung)
+
+„Prüfe auch nochmal den Bloom Effekt. Am Titelbild am hellen Himmel ist er merklich sichtbar. Aber im Spiel fällt es
+kaum auf, ich habe an mehreren Punkten geprüft. Aber da ist der Himmel auch kaum hell, da es immer dunkel ist oder
+regnet.“ Ziel (Hauptsitzung): echte Lichtquellen sichtbar (Fackeln, Lampen, Kerzen, Feuer, Laternen, erleuchtete
+Fenster, Mündungsfeuer, heller Himmel), dunkle Räume dunkel ohne milchigen Schleier, das Titelbild nicht zu stark,
+GLES und Vulkan gleich, Kosten etwa gleich.
+
+- **Ursache (gemessen an Bildern des PC-Kerns, `09914-bloom_stats.py`):** feste Schwelle 0,72 (Stark 0,62) auf den
+  hellsten Farbkanal; in Nachträumen liegen nur 0,03–0,6 % der Pixel darüber (r113, r11a, r11c, r20a, Grundhelligkeit
+  0,13–0,19), am Titelbild 13–53 %. Dazu verteilte der Mittelwert über 4 × 4 Spielpixel und der Weichzeichner eine
+  kleine Flamme so dünn, dass kaum etwas übrig blieb (eine Kerze aus 2 × 2 Pixeln: etwa +2 Helligkeitsstufen daneben).
+- **Neu (`gx_fixed_shaders.h`, `gx_core.cpp` `BloomLookOf`, `BloomPass` in `gx_gl.cpp` und `gx_vk.cpp`):**
+  - **Grundhelligkeit je Bild** (`kBloomKeyFs`, ein Durchgang in ein 1 × 1-Bild): Mittel über ein Raster von 16 × 12
+    Punkten der Szene. Daraus die Schwelle (Leicht 0,62 + 0,4 × Grundhelligkeit, zwischen 0,70 und 0,88; Stark 0,58 +
+    0,4 ×, zwischen 0,66 und 0,86: Nachträume 0,70 / 0,66, Steg 0,77 / 0,73, Titel 0,76–0,79 / 0,72–0,75, Tag 0,83 /
+    0,79) und ein **Budget**: liegt mehr als 1,2 % (Stark 1,8 %) des Bildes voll über der Schwelle (Himmel, helle
+    Überblendung, großes Mündungsfeuer), wird der Schein entsprechend schwächer, höchstens auf 40 %.
+  - **Gewichtung hoch 4** statt Quadrat: fast weiße Lichter zählen voll, beleuchtete Flächen knapp über der Schwelle
+    (nasse Planken, Haare, Mauer im Mondlicht) kaum. Ein Zwischenstand mit Quadrat und „hellster Punkt zählt mehr“ ließ
+    die Planken am Steg und Leons Kragen leuchten (Bilder `builds\bloom2\tune\`).
+  - **Kleine Lichter:** ein Bloom-Texel nimmt ein Viertel seines hellsten Punkts und drei Viertel des Mittels.
+  - **Enger Kern:** neben dem breiten Schein (alle Weichzeichner) ein enger (nach dem ersten Paar, drittes Bild),
+    Leicht 0,7 + 1,0, Stark 0,9 + 1,2.
+  - **Als „Screen“ aufgelegt** (Vulkan: Mischart 3 in `MakeFixed`, GL `GL_ONE, GL_ONE_MINUS_SRC_COLOR`) statt addiert:
+    eine Flamme behält ihre Zeichnung statt eines weißen Flecks, Helles gewinnt wenig.
+  - Halos + Lens Flares: unverändert ausgespart. Prüfschalter `RE4_GX_BLOOM_LOOK` (Werte für `gx_chunk_render`).
+- **Geprüft am PC** (WSL `~/re4-09914`, Aufnahmen `~/p09914/dumps`: Dorf bei Nacht r111/r113/r11a, Wald r11c,
+  Burg r203/r209/r20a, Tag r105, der Steg r11b über die Benchmark-Stelle, Mündungsfeuer r111/r20a, EU-Titel mit
+  Speicherkarte; Skripte `09914-dumps14*.sh`, `09914-bloom_pics.sh`, `09914-bloom_tune.sh` im Notizordner):
+  - Vorher/Nachher (oben 0.99.13, unten 0.99.14, je Aus | Leicht | Stark) in `E:\Development\Android\builds\bloom2\`:
+    Steg-Fackel deutlich heller umstrahlt, Planken unverändert; Dorf-Fackel r111 sichtbar, Leons Haare und Kragen nicht;
+    Mündungsfeuer breiter Schein; Wald ohne Licht (r11c) 0 bzw. 83 geänderte Pixel (dunkel bleibt dunkel); Burg ohne
+    Lichtquelle (r203/r209) kaum Änderung; Titel etwas ruhiger als 0.99.13 (Budget und Gewichtung).
+  - GLES gegen Vulkan: in allen 23 Bildern höchstens 94 Pixel über 2 % auseinander, ohne Bloom schon bis 92: der
+    Bloom bringt keine neuen Unterschiede.
+  - `gx_gl_check` GL und Vulkan (lavapipe): `TestBloom` erweitert (Lampe 10 Pixel daneben Leicht +42, Stark +57,
+    0.99.13 +26/+45; Kerze 2 × 2 Pixel 3 Pixel daneben +5/+6, 0.99.13 etwa +2; heller Raum 180 bleibt 180, nur die Lampe
+    leuchtet; halber Bildschirm Himmel +19/+30, nicht mehr als die Lampe); `TestUniformStream` beginnt jetzt mit einem
+    ungezählten Chunk (er hing davon ab, wo die Tests davor den Uniform-Puffer verlassen hatten; mehr Bloom-Szenen davor
+    ließen den ersten gezählten Chunk einmal teilen).
+  - Zeit am PC (llvmpipe, Software, mit glFinish), dieselben Bilder: vorher 5,0–5,6 ms, jetzt 6,2–7,6 ms je Bild;
+    auf dem Handy nicht vergleichbar (llvmpipe rechnet den 1 × 1-Durchgang mit 384 Abtastungen in einem Faden; dazu ein
+    drittes 128 × 112-Bild und zwei statt einer Abtastung im Auflegen).
+  - NDK-Bau `externalNativeBuildCoreDebug` ohne Fehler.
+- **Nicht geprüft:** auf dem Retroid (Aussehen in Bewegung, Kosten, ob der Schein zwischen Bildern flackert, wenn die
+  Grundhelligkeit springt: sie wird je Bild neu gemessen, nicht geglättet); Kerzen in einer echten Szene (in den
+  Aufnahmen keine nahe Kerze); Laternen und erleuchtete Fenster bei Nacht (nur im Code und an Testquadraten).
+
+## Version 0.99.13-rc (veröffentlicht 13.11.2026, Branch `09913`, Basis 55ccbeb6; 13.11.2026 origin/09912 971fd1d6 = Release 0.99.12-rc hineingemischt)
+
+Version 0.99.13-rc (versionCode 115), Releasetext `port/android-decomp/docs/releases/v0.99.13-rc.md` („Changes since
+v0.99.12.“, Known issues aus 0.99.12 übernommen). Nächste freie Patchnummer weiter 0232.
+
+### 1. Meldung „Zufällige Gegner klappt nicht, immer dieselben“ (13.11.2026)
+
+Analyse ohne Bericht des Spielers, Einzelheiten in `port/docs/gegner-randomizer-plan.md` Abschnitt 8: kein Fehler im
+Weg vom Knopf zum Kern gefunden (gelesen, nicht auf einem Gerät geprüft); die Stufe 1 tauscht in fast allen offenen
+Räumen nur Ganados derselben Art untereinander auf denselben Stellen (Seed 4242: echte neue Stellen nur in r20c und
+r304), im frühen Dorf r100–r103 ändert sich nichts außer höchstens einem fehlenden Ganado in r103. **Entscheidung des
+Projektinhabers (13.11.2026): „Das mit dem nicht funktionierenden Randomizer lassen wir, der User dürfte diesen falsch
+verstanden haben.“** Der Cheat bleibt, wie er ist; die Vorschläge A–E (Plan, Abschnitt 8) sind nicht gebaut.
+
+### 2. Kabelgebundener Xbox-Controller: LT/RT drehen die Kamera und bleiben hängen (Meldung eines Spielers)
+
+Bericht `E:\Development\Android\reports\09913-xbox-wired-triggers\report.md` (0.99.11-rc, Motorola Edge 70 Fusion,
+originaler Xbox-One-Controller per USB und OTG-Adapter, EU-Discs): „Pressing LT or RT moves the camera to one side by
+itself, and it stays stuck there“; Latch L/R, Alternative Steuerung, Totzone/Reichweite und Umbelegen helfen nicht.
+
+- **Ursache:** Die App nahm Z/RZ als rechten Stick, sobald ein Controller beide meldet (`CoreActivity`
+  `onGenericMotionEvent`, seit K2). Das ist die Reihenfolge der Controller, die Android kennt (Key-Layout-Dateien
+  `Vendor_xxxx_Product_yyyy.kl`: Stick Z/RZ, Trigger LTRIGGER/RTRIGGER bzw. BRAKE/GAS; alle Controller der bisherigen
+  Berichte: Retroid, Xbox und DualShock 4 per Bluetooth, GamePad Plus). Ein Controller ohne passende Datei behält die
+  Reihenfolge des Linux-Treibers (Generic.kl): xpad (kabelgebundene Xbox-Pads, X-input-Pads) gibt den rechten Stick
+  auf RX/RY und die Trigger auf Z/RZ, ohne Trigger-Achse. Z/RZ sind für Android mittige Achsen (−1…1), ein
+  losgelassener Trigger steht bei −1: als Stick gelesen, drückt er die Kamera ganz zur Seite, solange er ruht (erst
+  nach der ersten Bewegung des Triggers, vorher meldet Android 0). Der echte rechte Stick (RX/RY) wurde nicht gelesen.
+- **Behoben (`ControllerAxes.java`, neu):** je Gerät beim ersten Stick-Ereignis entschieden. Mit Trigger-Achse bleibt
+  alles wie bisher. Ohne Trigger-Achse, aber mit Z, RZ, RX und RY: Stick RX/RY, Trigger Z (L) und RZ (R) vom
+  Minimum (losgelassen) bis zum Maximum, außer die Flat-Werte des Kernels sagen das Gegenteil (Z/RZ mit Flat, RX/RY
+  ohne: dann Stick Z/RZ wie bisher; xpad gibt seinen Sticks ein Flat und den Triggern keins). Ein Trigger auf einer
+  mittigen Achse zählt erst, wenn er einmal nahe dem Minimum gesehen wurde (vor seinem ersten Ereignis meldet Android
+  die Mitte, das wäre ein halb gedrückter Trigger; ein Pad, das dort doch einen Stick hat, drückt in Ruhe nie L oder R).
+  Die Tastenbelegung im Menü (`CoreMenu`, Trigger fangen) nutzt dieselben Achsen. Protokoll: einmal je Gerät
+  „controller N "…": right stick RX/RY, triggers Z/RZ (the driver's order …)“ bzw. „right stick Z/RZ, triggers
+  LTRIGGER or BRAKE, RTRIGGER or GAS“; `controllers.txt` im Bericht nennt die Zuordnung je Controller („layout: …“).
+  Kommentar in `ControllerLog.readAxis` berichtigt (22 ist GAS, 23 BRAKE). Der alte ARM64-Modus (`ControllerActivity`,
+  `GameScreenDialog`) ist unverändert.
+- **Geprüft am PC:** `ControllerAxesTest` (7 Tests, Ereignisse wie vom Gerät: das kabelgebundene Xbox-Pad mit den
+  Achsen und Flats von xpad – Gehen vor dem ersten Trigger, LT drücken und loslassen, danach andere Tasten, rechter
+  Stick, RT; ein schneller Druck; die Tastenbelegung; Retroid, Xbox per Bluetooth, DualShock 4, GamePad Plus mit ihren
+  Achsen aus den Berichten unverändert; RX/RY allein, Z/RZ allein, Flats umgekehrt; ein Stick, der für einen Trigger
+  gehalten wird, drückt in Ruhe nichts). Gegenprobe: mit der alten Regel schlagen 5 der 7 Tests an.
+- **Nicht geprüft:** auf einem Gerät mit einem kabelgebundenen Xbox-Pad (keins hier); welche Achsen das Motorola
+  wirklich meldet (der Bericht hatte keine `controllers.txt`).
+
+### 3. Meldung „nach dem Update auf 0.99.12 nur noch 45 statt 60 FPS“ (13.11.2026)
+
+Bericht `E:\Development\Android\reports\09913-45fps\` (nubia NX709S, Adreno 730, Android 13; GLES, 60 FPS an, Frame
+skip aus, Profil Custom; 10:03–11:19, dazu `previous/` = 0.99.11, 2 Minuten). Auswertung mit `09913-fps_timeline.py`
+(Notizordner): Bilder je Minute, Zwischenbilder je Sekunde, ausgelassene, GPU-Zeit, Räume, Zeit in Spielmenüs.
+
+- **Keine Verschlechterung durch 0.99.12 gefunden.** Die 30-FPS-Abschnitte (ganze 10-s-Fenster mit ~303 Bildern) sind
+  genau die Zeiten in den Menüs des Spiels: Koffer, Karte, Händler, Akten (`run: sub screen open … closed`, zusammen
+  **2015 s von etwa 72 Minuten**) und einmal 88 s ein Bild ohne 3D-Abgleich in r11f (10:49:52–10:51:20, kein
+  Untermenü, vermutlich das START-Menü; `re4_picture_still`). Dort macht die App seit 0.91 absichtlich keine
+  Zwischenbilder (68ecb617, c5a4ca5a: Textlisten verschmieren, Aufblitzen). Minuten mit weniger als 5 s im Menü: im
+  Mittel **56 FPS**, die meisten 58–60; Zwischensequenzen haben ihre Zwischenbilder (r11fs02 ~30/s).
+- **Einstellung des Spielers um 10:28:** fest Stufe 3 statt Dynamisch (ab 2x) und Anisotropie 16 statt 2: GPU je
+  Bild ~8 → 9–10 ms, etwas mehr ausgelassene Zwischenbilder, in r10f 54–55 FPS statt ~60; danach in r200 wieder 60.
+  Keine Hitze-Drosselung erkennbar (nach einer Stunde 60 FPS).
+- **0.99.12-Teile geprüft:** der 30-FPS-Rhythmushalter (`PictureHold`, ab423bdf) wirkt nur ohne 60 FPS; der
+  Texturlader nur mit Paket (keins); die Benchmark-Wiederholung lief nicht (kein früherer Benchmark, `benchDate`
+  fehlt; `benchFirst` 2 = die Frage nach dem Update steht noch aus).
+- **Altbefund:** der Bildschirm bleibt bei 120 Hz, obwohl die App 60 Hz wünscht (auch 0.99.11 und 0.99.7). Die App
+  zeigt dann jedes Bild für 2 Bildwechsel, oft aber abwechselnd 1 und 3 (z. B. „1: 200, 2: 180, 3: 200“): gleiche
+  Anzahl, ungleichmäßiger. In 0.99.11 gab es nur zwei saubere Fenster („1: 51, 2: 503, 3: 49“), zu wenig zum
+  Vergleich. Möglicher Schritt (nicht gebaut, Inhaber fragen): ein Rhythmushalter wie `PictureHold` auch für 60 Bilder
+  auf 120 Hz.
+- Nichts am Programm geändert; Rat an den Spieler siehe Bericht an den Inhaber.
+
+### 4. Gleichmäßiger Takt bei 60 FPS auf Bildschirmen, die bei 120 Hz bleiben (Projektinhaber, 13.11.2026: „Ja, bauen“)
+
+Folge aus Abschnitt 3: auf dem nubia (120 Hz, 60 FPS an) kam ein Bild je 2 Bildwechsel an die Reihe, erreichte den
+Schirm aber beim ersten Bildwechsel nach dem Ende der GPU-Arbeit, 2 oder 3 nach Beginn, im Wechsel also 1 und 3
+Bildwechsel lang. Ein Zurückhalten wie `PictureHold` (30 FPS auf 60 Hz) hilft hier nicht: dort entscheidet die App,
+zu welchem Bildwechsel sie ein Bild zeichnet; bei 120 Hz entscheidet das Ende der GPU-Arbeit.
+
+- **`PresentPacer` (`picture_cadence.h`):** jedes Bild bittet Android um seinen Bildwechsel
+  (`eglPresentationTimeANDROID`, Teil der Android-Grafikschicht): `latency` Bildwechsel nach dem Bildwechsel, an dem
+  sein Zeichnen begann, auf dem Raster der App (`every`, `FramePacing`: 2 bei 120 Hz; ein Zeichnen, das einen
+  Bildwechsel zu spät begann, behält seinen Platz). Ein rechtzeitig fertiges Bild wartet dann auf seinen Platz, statt
+  einen früher zu kommen. Start mit `every + 1` (3 bei 120 Hz: 8 ms mehr für Bilder, die in 2 fertig gewesen wären);
+  danach nach dem, was der Schirm tat (`EGL_ANDROID_get_frame_timestamps`: GPU fertig, gezeigt): eins mehr, wenn mehr
+  als jedes 20. von 60 Bildern zu spät kam, eins weniger nach 5 s ohne verspätetes Bild mit einem Bildwechsel Reserve;
+  zwischen `every` und `every + 2`. **Tritt 30 s beiseite** (keine Zeitwünsche, alles wie vorher), wenn es nicht hilft:
+  mehr als jedes 4. Bild zu spät auch bei `every + 2`, oder der Zeichenfaden dreimal in 2 s hinter dem Spiel
+  (Zwischenbild ausgelassen, `gxBetweenDropped`); danach neuer Versuch ab `every + 1`. So hält es nie ein Bild zurück,
+  während das Gerät nicht nachkommt. Nur mit 60 FPS an (das 30-FPS-Menü bleibt, wie es war), nur wo `every`
+  Bildwechsel eine Sechzigstelsekunde sind (120, 180, 240 Hz; 60 Bilder auf 90 Hz können nicht gleichmäßig sein:
+  1 und 2 Bildwechsel im Wechsel, dort schlägt das Menü schon 30 vor), nur OpenGL ES (Vulkan zeigt selbst an), nur wenn
+  Android die Funktion meldet; 60-Hz-Schirme (Retroid) unverändert, auch ohne Zeitstempel. Prüfschalter
+  `RE4_GX_PRESENT_TIME=0` (aus).
+- **App:** `CoreActivity.pace` gibt das Raster weiter (`CoreBridge.setPictureEvery`); `core_mode.cpp`
+  `present::beforeSwap` nach jedem GX-Bild vor dem Tausch von GLSurfaceView.
+- **Protokoll:** die Zeile **„picture pacing“** endet jetzt, sobald der Halter einmal lief, mit „; present times: N
+  pictures asked for their vsync, 3 after their drawing's“ bzw. „; present times set aside (the device behind) …“ bzw.
+  „none asked“. Einmal „screen pacing: present times there/not there, frame timestamps …“, beim ersten Bild „each
+  picture asked for its vsync, 3 after its drawing's …“, beim Beiseitetreten „present times set aside for 30 s …“, und
+  alle 10 s **„screen pacing (as shown): …“** mit den Abständen, wie der Schirm sie wirklich zeigte (Zeitstempel von
+  Android), dazu Verzögerung, gefragte, beurteilte, verspätete Bilder, Schritte hoch und runter. „picture pacing“ misst
+  weiter am Zeichenfaden (bei 120 Hz nicht, was der Schirm zeigt).
+- **Geprüft am PC:** `gx_gl_check` 0 Fehler, neu `TestPresentPacer` (120,44 Hz wie beim Spieler, jedes 23. Zeichnen
+  einen Bildwechsel zu spät): Bilder 1,3–2,3 Bildwechsel nach Beginn fertig: **ohne Halter „1: 159, 2: 285, 3: 159“
+  (47 % genau 2), mit Halter „2: 603“ (100 %)**, kein Bild verloren, Verzögerung 2,53 → 3,00 Bildwechsel (im Mittel
+  3,9 ms mehr); langsamere GPU (2,5–3,4): ein Schritt auf 4, 98 % genau 2; schnelle GPU (0,6–1,2): nach 5 s zurück auf
+  2, 99 %; zu langsames Gerät (3,6–5,0): nach 120 Bildern beiseite, Verzögerung wie ohne (5,04), nicht mehr verlorene
+  Bilder, nach 30 s neuer Versuch; dreimal hinten in 2 s: beiseite, seltener: nicht; 60, 90 und 144 Hz unberührt;
+  240 Hz mit jedem 4. `gradlew :app:externalNativeBuildCoreDebug` (NDK, `core_mode.cpp`) ohne Fehler und Warnung.
+  `core_mode.cpp` selbst läuft am PC nicht (keine Android-EGL-Erweiterungen in Mesa).
+- **Nicht geprüft:** auf einem Gerät (keins mit 120 Hz hier); ob das nubia die Zeitwünsche befolgt, zeigt die neue
+  Zeile „screen pacing (as shown)“ im nächsten Bericht.
+
+### 5. Bloom (Projektinhaber, 13.11.2026: „Ja, einbauen“)
+
+Vorschlag an den Inhaber: Aus (Vorgabe) / Leicht / Stark, nur auf die Spielwelt, nicht auf HUD, Texte, Menüs; GLES
+und Vulkan gleich; aus mit Potato-Einstellungen; der Benchmark schaltet ihn nur auf starken Geräten ein.
+
+- **Wo:** `GxCore::Run` nach dem letzten 3D-Bild der Hauptansicht (dieselbe Stelle wie die Lens Flares,
+  `FlareScan`: HUD, Texte, Blenden und Menüs kommen danach) und **vor** den Lens Flares (die nicht noch einmal
+  leuchten). Nicht auf Menübildern des Spiels (`RE4_GX_CHUNK_STILL`), nicht in Filmen und 2D-Bildern (kein 3D-Bild);
+  die Zwischenbilder von 60 FPS laufen denselben Weg (`Interpolate` → `Run`). CRT, Farbe, PSone und FXAA an der
+  Display-Kopie nehmen ihn mit.
+- **Wie (`gx_fixed_shaders.h` `kBloomPickFs`/`kBloomBlurFs`/`kBloomAddFs`, `BloomPass` in `gx_gl.cpp` und
+  `gx_vk.cpp`):** ein eigenes Bild mit einem Texel je 4 × 4 Spielpixel (128 × 112 für die volle Szene, bei jeder
+  Auflösung gleich: gleicher Look, gleiche Kosten); je Texel 4 × 4 Abtastungen (eine je Spielpixel), jede einzeln
+  über der Schwelle genommen (hellster Farbkanal, weicher Übergang als Quadrat: eine Flamme nahe Weiß voll, heller Nebel
+  knapp über der Schwelle kaum; eine kleine Kerzenflamme behält ihren Anteil), dann 2 (Leicht) bzw. 3 (Stark)
+  Weichzeichner-Paare (9-Tap-Gauß, Abstand 1 / 1,5 / 2 Texel), zuletzt addiert (eins + eins, nur Farbe, EFB-Alpha
+  bleibt) über den Szenenteil: die Schere des letzten 3D-Bilds innerhalb des XF-Viewports (`BloomRegion`), so bleiben
+  die Kinobalken schwarz. Leicht: Schwelle 0,72, Stärke 0,55; Stark: 0,62 / 0,85 (`BloomLookOf`). Mit „Halos + Lens
+  Flares“ geben die Lichter, an denen ein Halo leuchtet (bis zu 8, die größten), keinen Bloom (`BloomHalos`, Maske im
+  ersten Durchgang): nie doppelter Schein. MSAA: GL löst die Farbe auf und addiert in den Mehrfach-Puffer (wie die
+  Flares), Vulkan liest das aufgelöste `efbColor` und addiert im EFB-Durchgang. Dynamische Auflösung: die Bilder
+  werden bei anderer Größe neu angelegt (`PassTexture`/`FilterImage`), sie leben nur innerhalb eines Bilds.
+- **App:** Display → Effekte, Knopf „Bloom: Aus / Leicht / Stark“ (Vorgabe Aus, `graphics` `bloomLevel`), eigene
+  Hilfezeile; Texte `ingame_bloom(_help)` in 11 Sprachen (`check_translations.py` 420 Texte ohne Befund).
+  `CoreBridge.setBloom` → `core_mode.cpp` `optBloom` → `GxRenderer::SetBloom` (Prüfschalter `RE4_GX_BLOOM=1/2`);
+  `CoreBridge.bloomSent`: aus, solange eine Potato-Einstellung an ist (Wetter, Spezialeffekte, Partikel, Schatten,
+  kürzere Sichtweite). Leistungsprofil: neuer Schlüssel `bloomLevel` am Ende (ältere gespeicherte Profile lesen 0),
+  „Hoch“ setzt Leicht nur, wo der Chip mehr als die Stufe des Bildschirms schafft (wie MSAA) und der Prozessor nicht
+  am Limit ist (`PerfProfile.bloomFor`); Mittel und Niedrig nie.
+- **Geprüft am PC:** `gx_gl_check` 0 Fehler, neu `TestBloom` (GL 1x, GL 1x mit „vergessenen“ Inhalten magenta, GL
+  2x, GL mit 4x MSAA in eigenen Puffern in allen `TestOptions`-Spielarten, Vulkan 2x mit lavapipe): Lampe weiß auf
+  dunklem Raum, Leicht: 10 Pixel daneben 40 → 66, Stark → 85 (22 Pixel: 44 / 57), GL, MSAA und Vulkan gleich; Raum
+  fern, mittelgraues Ding unter der Schwelle und die Umgebung des HUD-Quadrats unverändert; Kinobalken bleibt
+  schwarz; Menübild ohne Bloom; aus wieder wie vorher. Raum-Bilder aus dem PC-Kern (Debug-Start der Debug-Discs,
+  GX-Dumps, `gx_chunk_render` 2x, GLES und Vulkan): r111/r113/r11a (Dorf bei Nacht), r11c (Wald bei Nacht: **0
+  Pixel geändert**), r201/r203/r209/r20a (Burg mit Feuerschalen und Kerzen), r105/r10a/r103 (Tag), r100 (Titel);
+  Streifen „aus | leicht | stark“ in `E:\Development\Android\builds\bloom\`. Nach dem ersten Durchgang die Schwelle
+  weicher (als Quadrat): heller Nebel am Tag (r105) wurde mit „Stark“ milchig, danach etwa ein Drittel weniger
+  geänderte Pixel, die Feuer gleich. GLES gegen Vulkan: mit Bloom so nah wie ohne (in 47 von 48 Bildern dieselben
+  0–28 abweichenden Pixel, in einem 2 mehr). Zeit am PC (llvmpipe, Software): etwa 5–7 ms je Bild mit glFinish, auf
+  dem Handy nicht vergleichbar (ein 128 × 112-Bild und ein Additions-Durchgang über die Szene).
+  App-Tests: `CoreMenuLayoutTest` (Knopf, drei Stufen, Hilfezeile, Potato aus), `PerfProfileTest` (nur Hoch mit
+  Spielraum); je 132 grün; `gradlew :app:externalNativeBuildCoreDebug` ohne Fehler.
+- **Nicht geprüft:** auf einem Gerät (Aussehen, Kosten); mit Lens Flares und Halos zugleich (die Maske braucht
+  mehrere Bilder in Folge, im PC-Test nur einzelne Dumps); MSAA auf den Kacheln eines Mobil-Chips (llvmpipe kann es
+  nicht); in den Zwischenbildern von 60 FPS (derselbe Weg, aber nicht eigens geprüft); während eines Auflösungs-
+  wechsels von „Dynamisch“.
+
+### 6. Zufällige Gegner, Stufe 1.5 (Projektinhaber, 13.11.2026, nach seinem Test in r100)
+
+Bericht des Inhabers `E:\Development\Android\reports\09913-randomizer-owner\` („sie sind alle ident zum original“):
+Schalter angekommen („cheats: random enemies with seed 294150“), r100 absichtlich geschützt. Gewählt: ehrlicher
+Hilfetext, Zählräume, neue Stellen mit Prüfung, echte ±10 % (Einzelheiten `port/docs/gegner-randomizer-plan.md`
+Abschnitt 9; Patch 0231 erweitert: die Schleife am Ende fragt bis −1).
+
+- **Kern (`runtime/enemy_random.cpp`):** dritte Raumart „nur zählend“ (`enemy_random_rooms.inc` Spalte 2 = 2; 11 Räume
+  r106 r107 r117 r206 r207 r20b r20d r210 r21a r30b r30c): Stellen ja, Zahl nie. Jeder gewöhnliche Ganado nach dem Tausch
+  1,5–4 m weiter an eine geprüfte Stelle (`nearSpot`: `SatMgr.getFloor`, `SatMgr.hitCheck`; Boden ±25 cm, kein
+  Absatz über 50 cm, keine Wand in 40 cm und 1 m Höhe, 1,7 m frei, nicht näher als 6 m an Leon, 1 m Abstand zu allen
+  Einträgen des Raums und gewählten Stellen; acht Versuche). Zahl: ab 10 Ganados beim Raumbeginn −1…+1, ab 20 −2…+2;
+  weggelassen nie der letzte einer Art; Kopien eines Ganados, der gerade kommt, neben einem anderen, Tod an einem
+  leeren Eintrag, nur solange die Gegner-Plätze des Raums für das noch Kommende reichen (+4). Protokoll je Raum
+  „enemies: random enemies in r111 (list 1, seed 4242): 8 Ganados at the start, 8 ordinary, 8 spots: 8 at a new place
+  nearby, 0 on another's spot; the number stays (under 10)“ bzw. „12 -> 13: a copy of 0xa4 beside 0xa5 (death at
+  0x9c)“.
+- **App:** Hilfetext `ingame_cheat_random_enemies_help` in 11 Sprachen neu: welche Räume sich ändern (viele, ein paar
+  Meter neben dem eigenen Platz), die Zahl erst ab 10, in Zählräumen nur die Stellen, das Dorf am Anfang von Kapitel 1
+  und Räume mit Ereignissen, die bestimmte Gegner brauchen, bleiben (`check_translations.py` 420 Texte ohne Befund).
+- **Geprüft am PC** (Kern i686 -O2, `whole_build.sh` alle Prüfungen grün; Rundgang aller 126 Räume,
+  `whole_r100_check.sh --rooms all`; Skripte `09913-tours.sh`, `09913-tour_sum.sh`, `09913-em_map.py`, `09913-seeds.sh` im Notizordner):
+  - Debug-Discs ohne Cheat, Seed 4242 (mit Listen-Prüfung), 4242 noch einmal, Seed 777: je **ALLES OK**; US-Discs
+    4242: ALLES OK; EU-Discs 4242: 125 von 126 (r333 stürzt im Prüfprotokoll ab: der bekannte Altbefund, auch ohne Cheat
+    und mit 0.99.11; r333 hat keinen gewöhnlichen Ganado).
+  - Seed 4242: **13 Räume** angepackt (r103, r106, r107, r111, r113, r11a, r20c, r20d, r225, r303, r304, r31d, r330;
+    vorher 10, davon 2 ohne Änderung), **12 sehen anders aus als ohne Cheat** (r20c bringt seine Ganados erst später),
+    z. B. r111 alle 8 an neuen Stellen, r225 9 neue Stellen und 2 getauscht; die 3 Zählräume mit Ganados beim
+    Raumbeginn (r106, r107, r20d) ändern Stellen, nie die Zahl. Seed 777: 12 Räume anders, in r225 ein Ganado mehr
+    (12 → 13). Gleicher Seed zweimal: alle 126 Räume gleich. Listen-Prüfung: nie geschrieben. Keine gescheiterte Kopie,
+    kein „Em set failed“. EU gegen Debug: dieselben Räume (r107 dort mit 10 statt 11 Ganados, in r111 7 statt 8 neue
+    Stellen: die Listen der Discs weichen leicht ab); US gleich Debug.
+  - Die Zahl gezielt (r225 mit 12, r11a mit 11 Ganados, Seeds 1–8, `09913-seeds.sh`): alle 16 Läufe ALLES OK; 5×
+    ein Ganado mehr (Kopie kam), 2× einer weniger, 2× fand die Kopie keinen sicheren Platz (die Zahl blieb), sonst
+    unverändert; Liste nie geschrieben, keine gescheiterte Kopie.
+  - `whole_build_android.sh --abi all` 0 Fehler (Stubs wie erwartet).
+  - Draufsichten (grau Original, rot mit Cheat, Pfeil je Gegner) und Spielbilder in
+    `E:\Development\Android\builds\enemy-random\`: r111 und r225 (dazu r107, r113, r20d, r31d und zum Vergleich r111 mit
+    Stufe 1 aus 0.99.12: dort führten alle Pfeile nur zwischen den alten Plätzen). Die Spielbilder aus Leons Startblick
+    zeigen in r111 und r225 keinen Ganado (sie stehen weiter weg).
+  - App-Tests je 132 grün.
+- **Nicht geprüft:** auf einem Gerät; ein echtes Durchspielen (der Rundgang startet jeden Raum frisch); ob Ganados an
+  neuen Stellen irgendwo hängen bleiben (die Prüfung schließt Wände, Absätze und Kisten aus, nicht jede Eigenheit eines
+  Raums).
+
+### 7. Filmfarben unter Vulkan (Meldung eines Spielers, 13.11.2026)
+
+Bericht `E:\Development\Android\reports\09913-video-colours\` (0.99.12-rc, Xiaomi 25102PCBEG, Adreno 840, Android 17,
+Vulkan-Treiber 0.842.44, Renderer Vulkan): in `demo0.sfd` und anderen Filmen werden helle Haut und helles Metall
+leuchtend grün mit gelben Rändern.
+
+- **Ursache:** dieselbe wie beim Galaxy A36 (0.43.0, Abschnitt „Filmfarben Galaxy A36“ unten): die vierte Film-Stufe
+  `lerp(CPREV, APREV, K3)` mit `a << 8`, die der Treiber nur mit 16 Bit rechnet; Rot und Blau über 127 werden 0, Grün
+  bleibt (die gelben Ränder: Blau ist dort schon über 127, Rot noch nicht). Die GPU-Selbstprüfung lief bisher nur unter
+  GLES (`core_mode.cpp`: nicht bei Vulkan); unter Vulkan blieb immer die Schreibweise mit `a << 8`. Im Protokoll des
+  Berichts fehlt darum jede „GPU check“-Zeile.
+- **Behoben:** `gx_selfcheck.cpp` prüft mit beiden Renderern (`MovieColourCheck(wrong, GxApi)`): Vulkan liest das
+  Ergebnis über eine Bildschirmkopie (`ReadXfb`), GL weiter direkt aus dem EFB. `core_mode.cpp` startet die
+  Vulkan-Prüfung einmal je Lauf direkt nach dem Start des Vulkan-Renderers, auf dessen Gerät (kein zweites Gerät, das
+  wieder abgebaut wird) und bevor der Renderer einen GX-Shader erzeugt; die gewählte Schreibweise gilt für alle Shader
+  danach. Protokollzeile `GPU check (movie colours, Vulkan): …`. Eine zweite Prüfung im selben Lauf (anderer Renderer)
+  beginnt mit der schon gewählten Schreibweise und nennt sie (`; in use: …`). `gx_vk.cpp`: die Marke der vorab gebauten
+  Pipelines (`vk-ahead.done`) enthält die Schreibweise, wenn sie nicht die bisherige ist (betroffene Geräte bauen die
+  Liste einmal neu, alle anderen behalten ihre Marke). SPIR-V-Speicher und GL-Programmspeicher hängen schon am
+  Shadertext, sie brauchen nichts.
+- **Geprüft (PC, WSL, lavapipe/llvmpipe):** `gx_gl_check` 0 Fehler, neu `TestVkTevMath`: unter Vulkan mit der
+  bisherigen Schreibweise 32 von 32 richtig; die 16-Bit-Schreibweise (wie A36 und, nach den Bildern, das Adreno 840)
+  ergibt unter Vulkan genau die sechs Pixel des A36-Berichts (Rot und Blau 0, also grün), die Prüfung wählt dann „ohne
+  Verschiebung“ (0 falsch); jede der drei echten Schreibweisen gibt die Filmfarben richtig; zufällige TEV-Einstellungen
+  (2 × 60 Vierecke) in GL und Vulkan **Byte für Byte gleich** in allen vier Schreibweisen (auch die 16-Bit-Schreibweise
+  gleich falsch). NDK-Bau `externalNativeBuildCoreDebug` ohne Fehler.
+- **Nicht geprüft:** auf dem Adreno 840 selbst (der nächste Bericht muss `GPU check (movie colours, Vulkan): 6 of 32
+  pixels wrong; … in use: the lerp without the shift by 8 (the movies right)` oder ähnlich zeigen und die Filme
+  richtig); das Neubauen der Pipeline-Liste mit geänderter Schreibweise (nur im Code nachgesehen); die Dauer der
+  Prüfung auf einem Telefon (ein paar Shader und Pipelines, einmal je Lauf).
+- **Übergangstipp für den Spieler:** App-Menü (SELECT) → Display → Renderer → OpenGL ES (das Spiel startet neu); dort
+  läuft die Prüfung schon seit 0.43.
+
+## Branch `textures`: Lader für eigene HD-Texturpakete (12.11.2026)
+
+Wunsch des Projektinhabers (12.11.2026): ein Lader für vom Spieler selbst beschaffte HD-Texturpakete im Dolphin-Format,
+im Menüpunkt „Cheats“, der jetzt „Cheats & Mods“ heißt, dazu ein PC-Programm, das das Paket umwandelt und verkleinert.
+Eigener Meilenstein auf dem Branch `textures` (Basis 5f326f36, 0.99.12 per Merge nachgezogen bis 97e4fe8b); in welche
+Version er kommt, entscheidet der Inhaber später. Plan und Entscheidungen: `port/docs/textur-lader-plan.md`
+(Inhaber: nur eine Windows-`.exe`, Stufen 512/1024, bei schwarzem Bild warten, sonst im Hintergrund nachladen).
+
+- **T1 PC-Programm** (`port/tools/texpack/`, eigener Code, CC0): `CubeEvil4-TexturePacker.exe` (Visual Studio,
+  `build.ps1`, eine Datei ohne DLLs). DDS (BC1–BC5, unkomprimiert, liest nur die Mip-Stufe ab der Zielgröße) und PNG
+  (eigenes Inflate, alle Farbarten, Adam7), Mitchell-Verkleinerung mit Alpha-Gewichtung, Mipmaps (Abdeckung bei
+  „ganz oder gar nicht durchsichtig“ erhalten, `_arb` behält seine Stufen), ETC2/EAC-Umwandler (Einzel-, Differenz-,
+  Planar-Modus; T/H nur im Leser), Paketdatei `.c4tex` (`c4tex.h`, `port/docs/textur-paket-format.md`). Varianten des
+  Ordners `Extra` (HD Project: 5 Koffer, 3 Tastensätze) per Frage oder `-variant`. Ein Bild kann mit und ohne `_m` da
+  sein (216 Paare im HD Project, teils verschieden): beide werden behalten, die App nimmt das passende.
+  Geprüft: `texpack_tests` (816 Prüfungen, 270 PNG-Testbilder aus `make_png_fixtures.py`), `run_e2e.py` (21 Punkte:
+  Varianten, Doppel, Paket-Ordner unverändert, Ausgabe im Paket-Ordner verweigert, gleiche Eingabe gleiche Datei,
+  abgeschnittene/beschädigte Dateien), `etc2_gl_check` gegen Mesa (llvmpipe): alle 24.576 Blöcke aller Modi gleich.
+  Echtes Paket (5.927 Dateien, 11,8 GB): **512 → 701 MB in 4 min 47 s, 1024 → 2,34 GB in 16 min 22 s** (16 Threads),
+  5.916 Bilder, 11 übersprungen (4 Kopien „(1)“/„- Copy“, 7 Doppel), Qualität im Mittel 38,0 / 38,4 dB PSNR;
+  `-check` beider Dateien ohne Befund. Ergebnisse in `E:\Development\Android\builds\textures\`.
+- **T2/T3 Laden (GLES)**: `tex_pack.cpp` (Leser mit Prüfungen, XXH64, Dolphins Kennung inkl. Farbtabellen-Teil),
+  `GxCore::UploadHd` (Nachschlagen, ETC2 hochladen, Grenze `texPackBudget`, PSone-Modus behält die Originale),
+  Sampler verschieben ihre Stufengrenzen um `lodShift` (Spiel ohne Mipmaps: Ersatz bis zur Originalgröße).
+  `gx_chunk_render`: `RE4_TEX_PACK`, `_HALF`, `_MB`, `_LOG`, `_ONLY`, `_DUMP`. Geprüft am PC mit Debug-Dumps
+  (09912-Läufe): r100 41 von 88 Texturen ersetzt (5,6 MB), r101 21/37 (1,8 MB), r103 87/133 (11,6 MB);
+  Vorher/Nachher-Bilder in `builds\textures\pics\`. `gx_gl_check` 0 Fehler.
+  Befund r100 (Fahrt im Polizeiwagen): ein Baum-Schatten (IA4, `26d114511eeb3710`) liegt über dem Wageninneren; im
+  Original grob und kaum sichtbar, das Paket hat ihn scharf neu gemalt (gleiche Form, gleicher Mittelwert): so im
+  Paket, kein Fehler des Laders.
+- **T5 Vulkan**: ETC2-Bilder (`textureCompressionETC2` eingeschaltet, wo vorhanden), sonst ausgepackt als RGBA8
+  (lavapipe am PC: so geprüft, gleiches Bild wie GLES, 0 Validierungsfehler; 85,9 statt 11,6 MB). Der echte
+  ETC2-Weg unter Vulkan ist nur auf dem Gerät prüfbar.
+- **T6 App**: `TexturePacks.java` (Import über die Dateiauswahl in `<Datenordner>/textures/pack.c4tex`, Platzprüfung,
+  Kopie als `.part`, Prüfsummen, erst dann Tausch; Löschen nur dort; Grenze 256/512/768 MB nach Arbeitsspeicher,
+  192 MB bei 32 bit), `CoreBridge.setTexturePack`/`texturePackUse` (`core_mode.cpp`: Paket je Bild an den Renderer,
+  bei Wechsel `gxDetach`, damit der Kern alle Bilder neu schickt), Menü „Cheats & Mods“ → „Mods“ (Import/Abbrechen,
+  An/Aus, Schärfe Voll/Halb, Löschen, Zeile mit Paket und „gerade ersetzt“), 26 neue Texte in 11 Sprachen
+  (`check_translations.py` ohne Befund), README-Abschnitt und Legal-Punkt. `TexturePacksTest` 4/4,
+  `CoreMenuLayoutTest` 15/15.
+- **Startseite (Wunsch des Projektinhabers, 12.11.2026):** „Cheats & Mods“ und „Management“ wieder nebeneinander; der
+  längere Untertext mit den HD-Texturen hatte die Reihe auf dem Retroid umbrechen lassen (`MenuLayout.Buttons` richtet
+  sich nach dem breitesten Knopf). Untertext jetzt „Allgemein, Waffen, Geld und Texturen“ / „General, weapons, money
+  & textures“, in allen 11 Sprachen (Hindi mit „व“ statt „और“). `CoreMenuRowsTest` (echte Schriftbreiten): in allen
+  Sprachen und Schriftgrößen 100–150 % ist „Cheats & Mods“ nicht breiter als „Management“, die Reihe bricht also dort
+  um, wo sie es vorher tat; bei 320–1280 dp beide auf einer Linie, nichts abgeschnitten. Gegenprobe: mit dem alten
+  langen Untertext schlägt der Test an.
+- **Nie unter die Originalgröße, Stufe 256 (Projektinhaber, 12.11.2026: „Ja, plus Stufe 256“):** Der Packer (1.1)
+  verkleinerte jedes Bild auf die Stufe, auch unter das Originalbild des Spiels: im 512er-Paket 134 Einträge kleiner
+  als das Original (107 Originale über 512, davon 84 Vollbilder 640×360 → 512×288; dazu Bilder mit anderem
+  Seitenverhältnis), mit „Schärfe: Halb“ 955. Jetzt: `TargetFor` hält jede Richtung mindestens auf der Größe im
+  Dolphin-Namen (ein schon kleineres Paketbild bleibt, wie es ist; 1 Eintrag), „Half“ (`GxCore::UploadHd`) nimmt die
+  nächste Stufe nur, solange sie mindestens so groß ist. Neue Sparstufe 256 (Abfrage 1 = 256, 2 = 512 Vorgabe,
+  3 = 1024). Paket neu umgewandelt: **256 → 271 MB (2 min 13 s; 41 % der Bilder nicht schärfer als das Original, 866
+  über 256 gehalten), 512 → 716 MB (6 min 18 s; 133 Einträge größer als vorher, z. B. 640×360 statt 512×288),
+  1024 → 2,34 GB (16 min 31 s; nur 1 Eintrag größer als in 1.0, sonst gleich)**; `-check` ohne Befund. Die alten 1.0-Dateien bleiben lesbar, sind aber bei den großen
+  Bildern unschärfer: ersetzen. Geprüft: `run_e2e.py` 27 Punkte (640×360 bleibt, anderes Seitenverhältnis, kleineres
+  Paketbild, Stufe 256), `texpack_tests` 816; App mit „Half“ an Debug-Dumps (r100/r101/r103): kein Ersatzbild kleiner
+  als das Original, in r103 74 von 87 auf der halben Stufe, 13 bleiben voll; `gx_gl_check` 0 Fehler; App-Tests beider
+  Varianten je 120 grün (1 übersprungen: Bilder).
+- **BC7 und JPG im Packer (1.2; Projektinhaber, 12.11.2026: „Ja, nachrüsten“):** `bc7.cpp` (alle 8 Modi,
+  Partitions- und Ankertabellen) für DDS mit DX10-Kopf (DXGI 97–99), BC6H (94–96) mit Begründung abgelehnt (HDR, nicht
+  „billig“: eigene Gleitkomma-Modi, in Texturpaketen nicht üblich). `jpeg.cpp`: Baseline, erweitert sequentiell und
+  Progressive (auch Verfeinerungsdurchgänge), 8 bit, Grau/YCbCr/RGB (Adobe-Transform), beliebige Unterabtastung,
+  Restart-Marker; CMYK, 12 bit, arithmetisch, verlustfrei mit klarer Meldung. Namen und Ordner nehmen `.jpg`/`.jpeg`,
+  bei Doppeln gilt DDS vor PNG vor JPG. Geprüft: `make_bc7_jpeg_fixtures.py` (Pillow 12 als Bezug): 10 BC7-Dateien
+  (je Modus 1.024 Zufallsblöcke, gemischt, angeschnittene Blöcke, Mip-Stufen) exakt gleich; 82 JPG-Dateien (Grau,
+  4:4:4/4:2:2/4:2:0, Baseline/Progressive/optimiert, Qualität 30–85, Restart-Marker, Größen 1×1 bis 200×120) im Mittel
+  höchstens 0,16 Stufen von libjpeg-turbo entfernt; CMYK abgelehnt. `etc2_gl_check`: BC7 gegen Mesa (llvmpipe,
+  `GL_EXT_texture_compression_bptc`) alle 36.864 Zufallsblöcke gleich. `texpack_tests` 910, `run_e2e.py` 32 Punkte
+  (BC7, JPG, `.jpeg`, PNG vor JPG, BC6H abgelehnt). Das Paket des Inhabers (ohne BC7/JPG) ergibt mit 1.2 dieselben
+  Dateien wie mit 1.1: 256, 512 und 1024 je gleich groß, nur 2 Bytes im Info-Text anders (Version 1.1 → 1.2, Datum).
+- **Texture Packer für Android (Wunsch des Projektinhabers, 12.11.2026; Antworten 13.11.2026: ZIP direkt lesen, nur
+  ZIP und Ordner, Knopf „In CubeEvil4 importieren“): gebaut, Gerätetest offen.** Plan und Umsetzung:
+  `port/docs/textur-packer-android-plan.md`. PC-Programm 1.3: Bedienung und Umwandeln getrennt (`packer.h/.cpp`,
+  `texpack.cpp` nur Fenster), ZIP-Leser `zip.h/.cpp` (ZIP64, gespeichert/Deflate); das PC-Programm nimmt jetzt auch
+  ZIPs. Paket des Inhabers mit 1.3: 256/512 bis auf die Versionsnummer (1 Byte) gleich wie 1.2; als 11,9-GB-ZIP Byte
+  für Byte dieselbe Datei wie der Ordner. App `port/android-decomp/packer/` (`com.ast.cubeevil4.texturepacker`,
+  Debug-APK 1,2 MB): ZIP oder Ordner über die Dateiauswahl, Varianten, Stufe mit Größe und Dauer auf dem Gerät,
+  Speicher mit freiem Platz, Umwandeln als Vordergrunddienst in Download (unfertig unsichtbar, bei Abbruch gelöscht),
+  Bericht, „In CubeEvil4 importieren“. CubeEvil4: `TextureImportActivity` (fragt, importiert, schaltet ein), 3 Texte
+  und Hilfetext in 11 Sprachen. Geprüft: Packer 7 Tests, Lint ohne Fehler, beide `check_translations` ohne Befund,
+  `TextureImportActivityTest` 3/3, App-Tests beider Varianten je 123 ohne Fehler; nicht auf einem Gerät.
+  Nachtrag (Wunsch des Projektinhabers, 13.11.2026: größerer Text, Knöpfe je auf eine Bildschirmhälfte): Fließtext 17 statt
+  15 sp, Überschriften 19, Titel 24; helle Schrift #EDEDED auf #121212 (etwa 16:1), gesperrte Zeilen #8E8E8E (etwa 5,6:1);
+  Knopf-Paare ZIP/Ordner, Start/Abbruch, Bericht/Import nebeneinander, lange Texte zweizeilig. `PackerScreenTest`: 11
+  Sprachen bei 360 dp, Schrift 100 und 130 %, drei Zustände: nichts abgeschnitten, gekürzt oder außerhalb, Paare gleich
+  breit (Gegenprobe mit einzeiligen Knöpfen schlägt an). Bilder `builds\textures\pics\packer-*.png`.
+- **Noch offen:** T4 (Nachladen im Hintergrund, Gedächtnis je Raum; bisher lädt die App beim ersten Gebrauch sofort),
+  T7 (Test-APK, Retroid), Messungen auf dem Gerät, Packer-App auf dem Retroid (ZIP und Ordner, Dauer, Übergabe).
+
+## Version 0.99.12-rc: Zoom mit dem Mausrad, die Maus im Fernglas, Benchmark mit Prozessor, gleichmäßiger Bildtakt, Maus mit „Vertikal umkehren“, Benchmark nach dem Update neu, Zufällige Gegner, HD-Texturen, Texture Packer für Android (12.–13.11.2026, Branch `09912`)
+
+Version 0.99.12-rc (versionCode 114), Releasetext `port/android-decomp/docs/releases/v0.99.12-rc.md` („Changes since
+v0.99.11.“, Known issues aus 0.99.11 übernommen). Basis 45ac5a8e = master = 0.99.11-rc mit der README des Inhabers.
+Nächste freie Patchnummer weiter 0231 (0.99.12 braucht keinen Patch unter `src/`).
+
+### 1. Zoom mit dem Mausrad in Zielfernrohr und Fernglas (Wunsch des Projektinhabers)
+
+„Wenn jemand mit Tastatur und Maus spielt, soll mit dem Mausrad gezoomt werden können, wenn man ein Fernglas oder
+Zielfernrohr nutzt.“
+
+- **Wie das Spiel zoomt (`src/game/cam_extra.cpp`):** `CameraScope::move` (Gewehr, halbautomatisches Gewehr,
+  Raketenwerfer, alle Figuren; nur solange Zielen gehalten wird, `Key.on & 0x10`) und `CameraBinocular::move` (r101,
+  auch wieder nach dem Koffer) addieren je Spielbild `substickY * 0,001` auf ihren Zoom (0 … 1), C-Stick hoch zoomt
+  hinein; das Sichtfeld geht linear von 45° bis 9° (Zielfernrohr, mit dem aufgerüsteten Zielfernrohr bis 3°) bzw. 3°
+  (Fernglas). Sonst liest nur noch die Debug-Kamera den C-Stick so. Die Fernglas-Schnitte in r10b und r214 zeigen nur
+  den Rahmen des Fernglases über einer Ereigniskamera und zoomen nicht (dort ändert das Rad nichts, wie der C-Stick).
+- **Kern (`runtime/wheel_zoom.cpp`, neu, mit den Spiel-Flags in libre4_main; `re4_core_zoom`):** die App gibt jede
+  Rastung des Rads weiter (oben +1). Eine Rastung ist ein **Achtel des Zooms** (acht Rastungen von ganz weit bis ganz
+  nah): 125 Einheiten C-Stick, als kurzer Stoß gerade nach oben oder unten in `PADRead` an das Spiel gegeben
+  (`re4_pad_substick` in `runtime/pad.cpp`: 50, 50, 25 nach dem `PADClamp` des SDK, drei Spielbilder; das Spiel nullt
+  10 und weniger), so zoomt das Spiel mit seinem eigenen Code (Sichtfeld, Zoom-Leiste, die Unschärfe beim Zoomen) und
+  jede Rastung gleich weit. Rastungen stauen sich bis zum ganzen Zoom (8); eine Rastung in die andere Richtung wirft
+  die noch wartenden weg; am Ende des Zooms wird der Rest verworfen. Nur solange Zielfernrohr (`STA_SCOPE_CAMERA`,
+  `CamCtrl.r0` 0x10) oder Fernglas (`STA_BINOCULAR`, `r0` 0xC) im Spiel offen sind; sonst wird eine Rastung
+  verworfen und ändert nichts (kein C-Stick, keine Kamera). Weg zur App wie beim Wischen: `CoreBridge.zoom`,
+  `core_mode.cpp`, im eigenen Kern-Prozess Nachricht `kZoom` 43 (`core_ipc_client.cpp`, `host/coreproc.cpp`;
+  ältere Kerne: nichts). Prüfhilfe `RE4_TEST_WHEEL="N@F …"` (Bild F) bzw. `"N@vF"` (F Bilder nach dem Öffnen),
+  Protokollzeilen „wheel: the scope zoomed to 0.250 …“, „wheel: … dropped: neither the scope nor the binoculars up“.
+- **Dabei gefunden und behoben (Maus bewegen zoomte):** die Maus bewegte außer dem Ziel (`aimTurn`) immer auch den
+  C-Stick (`mouseLook`, die Kamera). Im Zielfernrohr und im Fernglas ist der C-Stick aber der Zoom: Maus hoch und runter
+  zoomte mit, im Fernglas tat sie sonst nichts. Jetzt meldet der Kern „Zielfernrohr oder Fernglas offen“ im Wort
+  `re4_core_rumble` als **Bit 6** (`pad.cpp` über `re4_pad_zoom_probe`, wie das Menü-Bit 4; Protokoll „pad: the scope
+  or the binoculars up …“), die App fragt es wie das Menü-Bit alle 16 ms ab (`CoreActivity.rumbleTick` →
+  `CoreInput.setZoomView`), und solange es gesetzt ist, gibt die Maus keinen C-Stick (`CoreInput.mouseLook`); das Ziel
+  im Zielfernrohr dreht sie weiter. Controller, Touch und Gyro unverändert (ihr C-Stick zoomt wie bisher).
+- **App:** `CoreActivity.capturedMouse` nimmt `ACTION_SCROLL` (eingefangene Maus), `onGenericMotionEvent` dasselbe,
+  solange das Spiel die Maus hat, sie aber nicht eingefangen ist (Android 7, vor dem ersten Klick).
+  `CoreInput.wheel`: ganze Rastungen aus `AXIS_VSCROLL`; Teile feiner Räder zählen zusammen, die andere Richtung wirft
+  den Rest weg. Protokoll „mouse wheel: 1 notch(es) up …“ (höchstens 20 Zeilen). Die Tastenbelegung ändert sich nicht.
+  Menü (Tastenbelegung → Tastatur & Maus): der Hilfetext unter „Mausempfindlichkeit“ nennt jetzt das Rad („Das Mausrad
+  zoomt mit Zielfernrohr und Fernglas (nach oben: näher heran).“), in allen 11 Sprachen (`ingame_mouse_help`).
+- **Geprüft am PC (i686 -O2, `~/p09912/scope.sh`, `bino.sh`, `series.sh`, Protokoll `~/p09912/series.log`, Bilder
+  `~/p09912/pics/`):** mit Debug-, EU- und US-Discs je Fernglas (r101, Leon an den Aussichtspunkt gesetzt, A) und
+  Zielfernrohr von Gewehr (9), halbautomatischem Gewehr (10) und Raketenwerfer (13) in r103: Rastungen 1, 1, 3, −2, 8, 2,
+  −8, −1 ergeben Zoom 0,125 / 0,250 / 0,625 / 0,375 / 1,000 / (am Ende verworfen) / 0,000 / (am Anfang verworfen),
+  Sichtfeld 40,5° … 9° bzw. 39,8° … 3°; zwei Rastungen vor dem Zielfernrohr (Leon geht) verworfen, der Zoom blieb 0.
+  Bilder: Zielfernrohr und Fernglas bei 0, 1, 2, 5 Rastungen und ganz nah. `CoreInputTests` (1843 Prüfungen, neu: kein
+  C-Stick der Maus bei offenem Zielfernrohr, der eines Controllers bleibt, Rastungen feiner Räder), `ActionMapTests`,
+  `CoreTouchTests`, `check_translations.py` ohne Befund, App-Tests beider Varianten (`testCoreDebugUnitTest`,
+  `testClassicDebugUnitTest`, JDK von Android Studio) je 112 grün (1 übersprungen: Bilder). `whole_build.sh` i686 -O2
+  alle Prüfungen grün; `whole_build_android.sh --abi all` (armeabi-v7a und arm64-v8a, 0 Fehler, Stubs wie erwartet)
+  und `gradlew externalNativeBuildCoreDebug` (`core_mode.cpp`, beide ABIs) ohne neue Warnung übersetzt.
+- **Nicht geprüft:** auf einem Gerät mit echter Maus (ob Android das Rad bei eingefangener Maus wirklich als
+  `ACTION_SCROLL` liefert, ist nur nach der Android-Quelle angenommen; das Protokoll zeigt es mit „mouse wheel:“), die
+  Abschaltung des Maus-C-Sticks im Spiel selbst (die App-Seite ist nur in `CoreInputTests` geprüft), JP-Discs, das
+  aufgerüstete Zielfernrohr des halbautomatischen Gewehrs (Typ 1, gleicher Code), die Minenwerfer mit Zielfernrohr.
+
+### 2. Die Maus bewegt den Blick im Fernglas (Entscheidung des Projektinhabers)
+
+Auf die Frage aus Abschnitt 1 („Soll die Maus im Fernglas auch den Blick bewegen?“) der Projektinhaber: „Ja, Maus
+bewegt Blick“; dazu: gleiche Regeln wie beim Zielen mit der Maus, das Rad zoomt weiter, Bewegen zoomt nicht, WASD und
+Pfeiltasten wie bisher, auch die Fernglas-Zwischensequenzen, falls das Spiel dort Umsehen erlaubt.
+
+- **Wie das Fernglas sich dreht (`CameraBinocular::move`):** mit dem Hauptstick (und dem Steuerkreuz),
+  `gain * stickX * −0,05°` um die Hochachse und `gain * stickY * 0,05°` hoch/runter je Spielbild (`gain` = 1 − 0,9 ×
+  Zoom; mit der Spiel-Option „Umkehren“ hoch/runter vertauscht), innerhalb der Grenzen des Raums (r101:
+  `SetBinocularRange` −0,060 … 0,265 hoch/runter, −0,253 … 0,149 seitlich). Die Maus kam bisher dort gar nicht an (die
+  Ziel-Drehung `turnAim` kennt nur Waffen, Messer und Harpune).
+- **Kern (`runtime/wheel_zoom.cpp` `re4_binocular_look`, `runtime/gyro.cpp`, `runtime/pad.cpp`):** die Mausbewegung
+  kommt wie beim Zielen als Winkel (`CoreBridge.aimTurn`, mit der Mausempfindlichkeit); `gyroHook` gibt die Summe eines
+  Spielbilds zuerst dem Fernglas. Ist es offen (`STA_BINOCULAR`, `CamCtrl.r0` 0xC), werden die Winkel zu Einheiten des
+  Hauptsticks für genau dieses Bild (`re4_pad_stick_add`, nach dem `PADClamp` gerechnet, zu WASD bzw. einem
+  Controller-Stick addiert), und das Spiel dreht mit seinem eigenen Code: gezoomt langsamer wie die Maus im
+  Zielfernrohr, an den Grenzen Schluss. Höchstens so weit wie der Stick am Anschlag je Bild (72 Einheiten = 3,6°, im
+  Achteck des `PADClamp`); mehr verfällt, Bruchteile einer Einheit werden mitgenommen. Hoch/runter wie beim Zielen mit
+  der Maus: die Spiel-Option „Umkehren“ (= „Invert vertical“ der App) wird ausgeglichen, denn auch beim Zielen folgt
+  die Maus ihr nicht (`turnAim` liest sie nicht). Gyro und Touch-Ziel wie bisher (das Gyro geht nicht über diesen Weg;
+  ein Wisch der Touch-Zielfläche käme nur mit gehaltenem L/R an, im Fernglas dreht er dann mit). Prüfhilfe
+  `RE4_TRACE_LOOK=1`: „look: frame … binoculars yaw … pitch …“ alle 10 Bilder.
+- **Fernglas-Zwischensequenzen:** r10b (Bootsfahrt, der Boss zeigt sich, Schnitte 1/3/7) und r214 (Katapulte, Schnitte
+  1–4) legen nur den Rahmen `IdBinocular` über die Kamera der Zwischensequenz; nichts im Spiel liest dort Stick oder
+  C-Stick, Umsehen und Zoomen gibt es dort auch mit dem Controller nicht. Darum nichts eingebaut.
+- **App:** keine neue Logik (die Maus schickt ihre Bewegung schon immer an den Kern, ihr C-Stick ist im Fernglas seit
+  Abschnitt 1 aus); Hilfetext `ingame_mouse_help` in 11 Sprachen: „… beim Zielen bewegt sie das Ziel, im Fernglas den
+  Blick.“
+- **Geprüft am PC (i686 -O2, Debug-Start r101 wie Abschnitt 1, Maus als `RE4_TEST_SWIPE`, `~/p09912/look.sh`):**
+  0,01 rad je Bild nach links für 10 Bilder: Blick 0,0995 rad nach links (die fehlenden 0,0005 sind der mitgenommene
+  Bruchteil); nach oben: 0,0995 hoch; voll gezoomt: 0,010 (ein Zehntel); sehr schnell (0,2 rad je Bild): 3,6° je Bild,
+  Stopp an der linken Grenze (+0,149); nach rechts und unten an den Grenzen (−0,253, −0,060); mit „Umkehren“
+  (`RE4_TEST_AIM=1`) weiter nach oben. Debug-, EU- und US-Discs: links und hoch zugleich je 0,0995 / 0,0593, Bilder vorher
+  und nachher (`~/p09912/pics/look-eu`, `look-us`). Gegenprobe Zielfernrohr (Gewehr, r103): die Maus dreht Leon wie
+  vorher (+0,100). Rad-Test (Abschnitt 1) unverändert. `whole_build.sh` i686 -O2 alle Prüfungen grün,
+  `whole_build_android.sh --abi all` 0 Fehler, `check_translations.py` ohne Befund.
+- **Nicht geprüft:** auf einem Gerät mit Maus; das Fernglas nach dem Koffer (dort mit `m_flag` 1, derselbe Stick-Weg);
+  WASD und Maus gleichzeitig (die Summe ist dann nur angenähert, der `PADClamp` begrenzt sie).
+- **„Invert vertical“ und die Maus:** zunächst folgte die Maus dem Schalter nirgends; entschieden und gebaut in
+  Abschnitt 4.
+
+
+### 3. Benchmark zu optimistisch auf einem Helio-G85-Handy, ungleicher Bildtakt (Nutzerbericht über den Projektinhaber)
+
+Bericht `E:\Development\Android\reports\09912-benchmark-too-good\cubeevil4-report-20261112-090052\` (Xiaomi
+25078RA3EL „dew“, Android 16, mt6768 Helio G85: 2 große A75 bis 2,0 GHz und 6 kleine bis 1,7 GHz, Mali-G52 MC2, 3,6 GB,
+Vulkan, 60,1 Hz, 0.99.11-rc): Vorschlag „Mittel“, damit kleine Ruckler.
+
+- **Aus dem Protokoll:** Benchmark 1 am Steg: 30 FPS 2,5× 17,0, 2× 24,6, 1,5× 30,1 „stable“; 60 FPS nicht einmal bei 1×;
+  Vorschlag Mittel (Dynamisch bis 1,5×, Frame-Skip Normal, Effekte, Schatten & Licht an), `benchCpu=false`. Benchmark 2
+  vorher/nachher je 30,1, 0 schwache Sekunden: angenommen. **Der Spiel-Thread** (Zeile „GX core“: Prozessorzeit je
+  Bild) brauchte am Steg **25,4–25,5 ms von 33,4 (76 %)**, im Dorf danach 18–24 ms (r100–r10e, r118); die großen
+  Kerne liefen meist mit 850–1000 MHz („cores now: 6 998/998“: das Handy erlaubte nur noch 1 GHz). Der Steg war für
+  den Prozessor also nicht leichter als das Dorf (die Annahme des Plans); der Benchmark sah es nur nicht, weil er
+  allein Bilder je Sekunde zählte. Vergleich Retroid am Steg: 8–9,5 ms (27 %). Andere Berichte ohne Steg-Messung
+  im Spiel: moto g15 14–23 ms, realme RMX3710 18 ms, Redmi 10 18 ms, Galaxy A24 10–11 ms, Mobicel (PowerVR) 34 ms.
+  **Bildtakt** („picture pacing“) schon am Steg bei 1,5×: 1 Takt 63-mal, 2 Takte 131-mal, 3 Takte 91-mal, 54 % neben
+  dem Median; Retroid an derselben Stelle 1: 13, 2: 275, 3: 13 (7–10 %). Die Bilder wurden mal kurz vor, mal kurz nach
+  einem Takt fertig (Spiel-Thread am Limit plus GPU), der Bildschirm zeigte sie 1 und 3 Takte im Wechsel: das
+  gespürte Ruckeln bei vollen 30 Bildern je Sekunde.
+- **(a) Prozessor messen (Kern + App):** `Re4GxChunk::coreCpuUs` neu (`runtime/re4_gx_frame.h`): `gx_decode.cpp`
+  `chunkBoundary` trägt die Prozessorzeit des Kern-Threads seit dem letzten Bildpaket ein (`re4cpu::ThreadNs`); im
+  eigenen Kernprozess über `GxInfo::coreCpuUs` (`re4_core_ipc.h` `kVersion` 5, `core_ipc.cpp fillInfo`,
+  `core_ipc_client.cpp`). `core_mode.cpp`: der Benchmark summiert sie je Sekunde (`LevelBench::cpuUs`), `BenchSteps`
+  (`gx_bench_steps.h`) mittelt je Stufe und nimmt beim Ende des 30er-Durchgangs die Stufe des Ergebnisses:
+  `CpuLoad()` in % von 33,37 ms; Logzeile je Stufe „…; the game's thread 25.4 ms of processor time a picture (76 %)“,
+  Ergebnis „… the game's thread needs 76 % of a picture's time“; `benchmarkState` hat 10 Werte. App: `BenchmarkFlow`
+  speichert `benchCpuLoad`, `PerfProfile`: **ab 75 % bremst der Prozessor** (`cpuWeak`, wie das alte Zeichen: Niedrig,
+  Frame-Skip Aggressiv, Sichtweite Kurz), **60–75 % nahe an der Grenze** (`cpuTight`): Empfehlung eine Stufe tiefer,
+  als der Grafikchip erlaubt; Popup 2 „Bremst: der Grafikchip, der Prozessor nahe an seiner Grenze“ (neuer Text
+  `ingame_limit_both`, 11 Sprachen).
+- **(b) Grenzfall:** über (a): das Handy hielt 30 FPS genau bei 1,5× (Schwelle für Mittel), sein Spiel-Thread lag bei
+  76 % → Niedrig; wäre es kühler (z. B. 70 %), gäbe „nahe an der Grenze“ ebenfalls Niedrig (Mittel − 1). Effekte bleiben
+  in Mittel und Hoch an: Schatten & Licht und Partikel sparen dem Spiel-Thread nur wenige Prozent (Potato-Messung
+  0.99.3: zusammen −6,5 %), sie entlasten den Grafikchip. Ein Grenzfall nur beim Grafikchip (Prozessor ruhig) bleibt
+  wie bisher: „Dynamisch“ fängt Schwankungen des Grafikchips auf, Benchmark 2 prüft den Vorschlag.
+- **(c) Frame-Skip:** bremst der Prozessor oder ist er nahe an der Grenze, setzt jedes Profil **Aggressiv** (Patch
+  0227, das Spiel lässt ein Bild aus, wenn es hinterherhängt), nicht Normal (hilft nur einem Grafikchip); kein 60 FPS
+  ab 60 % (jedes Bild müsste rechtzeitig kommen); Mittel/Hoch mit Sichtweite Mittel.
+- **(d) Bildtakt, gebaut (eindeutig im Protokoll und in der Simulation):** `picture_cadence.h` `PictureHold`,
+  `core_mode.cpp drawGx`: bei 30 Spielbildern je Sekunde ohne 60 FPS auf einem Bildschirm mit 54–66 Hz wartet ein
+  neues Spielbild, das schon einen Takt nach dem letzten fertig ist, einen Takt (`skipNext`, nie zweimal); nicht bei 60
+  Spielbildern je Sekunde (Titel, Filme: `chunkRate.Sixty`), nicht, wenn der Zeichen-Thread selbst einen Takt verpasst
+  hat (dann ist der Abstand schon 2). Nach einem späten Bild bleibt so der 2er-Takt, eine Sechzigstelsekunde später
+  (im Mittel +0,5 Takte Verzögerung), statt sofort aufzuholen. Logzeile „picture pacing: N new pictures held back one
+  vsync so far …“ beim ersten und je 600.
+- **Geprüft am PC:** `gx_gl_check` (WSL, `port/build/app-host-gl`) 0 Fehler, neu: `TestBenchSteps` mit den Zahlen des
+  Berichts (17 / 25 / 30 Bilder je Sekunde, 25,4 ms → 30 FPS bei 1,5×, 76 %, das alte Zeichen sah nichts; 9 ms →
+  27 %; ohne Angabe −1); `TestPictureHold`: Bildfertigstellung 1,6–2,4 Takte nach Bildbeginn (wie im Bericht) gibt
+  ohne Halten 1: 82, 2: 137, 3: 82, 54 % daneben (Bericht: 63/131/91, 54 %), mit Halten 2: 301, 0 % daneben, alle 330
+  Bilder gezeigt, 162 einen Takt gehalten; ruhiges Gerät (1,2–1,5): nichts gehalten; 120 Hz und unbekannter Takt:
+  nie. `PerfProfileTest.theProcessorAtThePlaceDecides` (das Handy: ohne Last Mittel wie bisher, 76 % Niedrig mit
+  Aggressiv und Sichtweite Kurz, „Mittel“ von Hand dann Aggressiv, Sichtweite Mittel, kein 60 FPS; 70 % Niedrig;
+  ein Hoch-Gerät mit 65 % Mittel; 50 % Mittel mit Normal; Retroid 27 % Hoch mit 60 FPS; die Einstellung gespeichert).
+  App-Tests beider Varianten je 113 grün (1 übersprungen: Bilder), `check_translations.py` ohne Befund (385 Texte),
+  `whole_build.sh` i686 -O2 alle Prüfungen grün (auch `re4_core_remote_test`: Bildpakete über den Kernprozess mit
+  `kVersion` 5), `whole_build_android.sh --abi all` 0 Fehler, `gradlew externalNativeBuildCoreDebug` übersetzt.
+  Plan `port/docs/leistungsprofil-plan.md` nachgetragen (Gerätezeile, Regel, Tabelle).
+- **Nicht geprüft:** auf einem Gerät (das Handy des Nutzers: neuer Benchmark, Vorschlag Niedrig, Bildtakt im Dorf;
+  der Retroid: dass das Halten dort nie greift oder nicht stört); ob die Prozessorzeit auf anderen Handys am Steg so
+  eindeutig trennt (außer dem Bericht nur Retroid-Werte vom Steg). Wer schon einen Benchmark hat, behält seinen
+  Vorschlag (ohne Messwert gilt die alte Regel); ein neuer Benchmark zeigt den neuen.
+
+### 4. „Vertikal umkehren“ auch für die Maus (Entscheidung des Projektinhabers)
+
+„Vertikal umkehren soll auch für die Maus gelten.“ (Antwort auf die offene Frage aus Abschnitt 2.)
+
+- **Vorher:** der Schalter „Invert vertical“ (Menü Steuerung, Zielen; er stellt die Option „Umkehren“ des Spiels,
+  `CFG_AIM_REVERSE`, Patch 0188) galt für das Zielen per Touch und Controller; die Maus drehte das Ziel immer gleich
+  (`turnAim` liest die Option nicht, das Fernglas hob sie seit Abschnitt 2 eigens auf).
+- **Jetzt (App):** `CoreInput.mouseAim` (statisch): die Mausbewegung als Drehung des Ziels, mit dem Schalter hoch und
+  runter vertauscht; `CoreActivity.capturedMouse` schickt sie mit `aimInvert` (dem Wert des Schalters, wie beim
+  Wischen der Touch-Zielfläche). Damit gilt die Umkehr für normales Zielen, das Zielfernrohr und das Fernglas gleich,
+  denn der Kern gibt in allen dreien die Richtung der App unverändert weiter. Die Kamera mit der Maus (ohne Zielen)
+  bleibt, wie sie ist: der Schalter gilt dem Zielen. **Waagerecht umkehren** gibt es nur beim Gyro (eigene Schalter),
+  nicht für Touch und Controller: für die Maus also nichts. Hilfetext `ingame_aim_help` (11 Sprachen) um einen Satz
+  ergänzt: „Vertikal umkehren gilt auch für die Maus (Zielen und Fernglas); ihr Tempo ist die Mausempfindlichkeit.“
+- **Geprüft am PC:** `CoreInputTests` (1846 Prüfungen, neu `mouseAim`: Maus nach unten zielt nach unten, mit dem
+  Schalter nach oben, Empfindlichkeit), `ActionMapTests`, `CoreTouchTests`; im Kern (i686 -O2, Debug-Discs r103/r101,
+  `RE4_TEST_SWIPE` wie eine Maus, `RE4_TEST_AIM` 0/1 für die Option des Spiels, `RE4_TRACE_LOOK` jetzt auch für das
+  Zielfernrohr): Gewehr-Zielfernrohr +0,1 rad nach oben mit und ohne „Umkehren“ gleich (+0,1026), TMP-Zielen m3r
+  −0,007 → 0,119 mit und ohne gleich, Fernglas mit „Umkehren“ und −0,1 rad: 0,0995 nach unten. Die Richtung bestimmt
+  also allein die App, die die Maus jetzt mit dem Schalter umdreht. App-Tests beider Varianten je 113 grün,
+  `check_translations.py` ohne Befund, `whole_build.sh` i686 -O2 alle Prüfungen grün.
+- **Nicht geprüft:** auf einem Gerät mit Maus; der Wechsel des Schalters im Spiel selbst (Optionen des Spiels) gilt für
+  die Maus wie für das Wischen erst, wenn die App ihn übernimmt (beim Öffnen des App-Menüs, `keepGameAimInvert`).
+
+### 5. Gegner-Randomizer: nur geprüft, Plan (Wunsch des Projektinhabers, nichts gebaut)
+
+„Prüfe ob auch ein ‚Randomizer' wie bei den Objekten auch für Gegner möglich wäre … Mit einer Menge +/- 10%. Für die
+Story oder Filmszenen wichtige Gegner müssen bleiben.“ Plan und Begründung: `port/docs/gegner-randomizer-plan.md`.
+Kurz: die Gegnerliste gilt je Kapitelabschnitt (256 Plätze), steht im Spielstand und merkt Tote nach Platznummer;
+Raumskripte sprechen Plätze und Arten direkt an (90 von 122 Raumskripten), höchstens 4 Gegnerarten je Raum, kein
+Merkmal „Boss“. Vorschlag Stufe 1: nur beim Raumbeginn erschaffene gewöhnliche Ganados, Stellen anderer Einträge
+desselben Raums, je Raum −1/0/+1 Gegner außerhalb der Räume, die Gegner zählen, Schutzliste aus den Skripten, die
+gespeicherte Liste unverändert. Andere Gegnerarten (a) und zufällige neue Positionen nicht. Gebaut: Abschnitt 7.
+
+### 6. Benchmark nach dem Update einmal neu (Entscheidung des Projektinhabers)
+
+„Ja nach einem Update einer älteren Version soll der Benchmark neu gemacht werden.“ (Frage aus Abschnitt 3.)
+
+- **Wann:** ein fertiger Benchmark ohne Prozessor-Anteil (`benchDate` gesetzt, `benchCpuLoad` fehlt, also 0.99.10 und
+  0.99.11) und kein anderer Benchmark ausstehend (`benchFirst` 0): `CoreActivity.perfFirstRun` setzt beim Start
+  `benchFirst` = 1 (wie beim allerersten Start) und `benchRedo` = 12 (`PerfProfile.redoDue`/`scheduleRedo`), so
+  kommt es einmal je Gerät. Danach derselbe Ablauf wie beim ersten Start: sobald das Titelmenü wartet, Popup 1,
+  Benchmark 1, Popup 2 mit Ignorieren/Übernehmen, beim Übernehmen Benchmark 2 und Popup 3; B/Zurück verschiebt auf
+  den nächsten Start, bis er einmal durchlief (`benchFirst` geht erst mit dem Ergebnis auf 0, dabei wird
+  `benchCpuLoad` gespeichert). Wer nie gemessen hat, bekommt wie bisher nur die Frage im Menü.
+- **Popup 1** (`BenchmarkFlow.offerFirst`, `PerfProfile.redo`): Titel „Neu messen“ statt „Willkommen“, darunter in Gold
+  „Neu: Der Benchmark misst jetzt auch den Prozessor, damit der Vorschlag besser zu diesem Gerät passt. Deine
+  Einstellungen bleiben, wie sie sind, solange du den neuen Vorschlag nicht annimmst.“ (`ingame_bench_redo`,
+  `ingame_bench_redo_text`, 11 Sprachen), dann der bekannte Text. Aufwärmen 5 s statt 15 s (die Grafikprogramme sind
+  schon gebaut). **„Ignorieren“** lässt bei der Wiederholung auch die Auflösung des Spielers stehen (beim ersten Start
+  stellt es wie bisher auf „Dynamisch“); nur die gemessenen Stufen für „Dynamisch“ werden neu.
+- **Geprüft (PC, Robolectric):** `BenchmarkRedoTest`: neue Installation, kein Benchmark, alter Benchmark (fällig,
+  einmal geplant, Auflösung unberührt, nicht doppelt), nach dem Lauf nie wieder, auch ohne Anteil nicht, ein Benchmark
+  von 0.99.12 (auch mit −1) nicht; Popup 1 mit Titel und Grund, B/Zurück lässt ihn fällig, beim ersten Start der
+  Willkommenstext ohne Grund. App-Tests beider Varianten je 115 grün, `check_translations.py` ohne Befund (387 Texte).
+- **Nicht geprüft:** auf einem Gerät (der ganze Ablauf nach einem echten Update von 0.99.11).
+
+### 7. Cheat „Zufällige Gegner“, Stufe 1 (Entscheidung des Projektinhabers, Patch 0231)
+
+„Ok den Randomizer Schalter wie von dir vorgeschlagen ‚Stufe 1' und als Button neben dem Item Randomizer.“
+
+- **Menü (Cheats → Spiel):** Knopf „Random enemies“ / „Zufällige Gegner“ neben „Random items“ (dieselbe Reihe), eigener
+  Seed (20 Bit, bei jedem Einschalten neu, `core_game` `enemySeed`, 0 aus), Hilfetext darunter; Texte
+  `ingame_cheat_random_enemies(_help)` in 11 Sprachen. Weg zum Kern: `CoreMenu.Host.enemyRandomChanged` →
+  `CoreBridge.setEnemyRandom` → `core_mode.cpp` → `re4_core_set_enemy_random` (im Kernprozess Nachricht
+  `kSetEnemyRandom` 44); beim Start schickt die App den gespeicherten Seed. Wirkt ab dem nächsten Raum.
+- **Kern (`runtime/enemy_random.cpp`, Patch 0231 in `em_set.cpp EmSetFromList`):** beim Raumbeginn ein Plan
+  (`re4_enemy_random_room`): die **gewöhnlichen Ganados** des Raums (ids 0x10–0x20 ohne Händler 0x18, `set` 0 „Normal“,
+  keine Kettensäge-, Händler-, Garrador- oder Gatling-Form) tauschen ihre Stellen untereinander und mit Stellen von
+  Ganado-Einträgen des Raums, die gerade nicht benutzt werden (spätere Wellen, andere Abschnitte); Art, Modell,
+  Verhalten, Leben, Wachradius bleiben. Je Raum −1, 0 oder +1: weggelassen wird einer, der gerade erscheint, und nur,
+  wenn ein anderer seiner Art im Raum ist (Ereignisse brauchen den Code der Art); eine Kopie kommt an eine Stelle,
+  die keiner nahm, sonst an die eines gerade abwesenden, nur von einer Art, die gerade lebt; ihr Tod steht an einem
+  leeren Eintrag der Liste (id 0). `EmSetWork` bekommt eine Kopie des Eintrags, **die Liste selbst wird nie
+  geschrieben** (ein weggelassener bleibt in der Liste ungesetzt und erscheint ohne Cheat wieder). Alles aus Seed,
+  Liste, Raum: gleicher Seed, gleiches Bild. Protokoll je Raum „enemies: random enemies in r111 (list 1, seed 4242): 8
+  ordinary Ganados, 8 spots: 6 placed elsewhere …“ bzw. „… leave r101 as it is (…)“.
+- **Unangetastet:** Adas Spiel, Mercenaries, Ashleys Teil, Stufe 4; Räume, deren Skript Gegner zählt oder fegt, einen
+  Boss hat oder Einträge über Variablen anspricht, und Räume ohne eigenes Skript (**63 von 108** Story-Skripten, darunter
+  r101, r104, r11c, r11d, r208, r224, r327 und alle Bossräume); in den übrigen 45 Räumen die Einträge, die das Skript
+  mit Nummer nennt, und die, auf deren Tod ein Bereich des Raums wartet (`waiting_type` 1: Türen, Gegenstände). Die
+  Schutzliste erzeugt `port/tools/enemy_random_table.py` aus `src/st1..st3/rXYZ.cpp` (`runtime/enemy_random_rooms.inc`,
+  `--check` meldet, wenn sie nicht mehr zu den Skripten passt).
+- **Geprüft am PC (i686 -O2, Raum-Rundgang `whole_r100_check.sh --rooms all`, je 126 Räume, Leon läuft, rennt,
+  schießt, drückt A; `RE4_ENEMY_RANDOM` = Seed, `RE4_ENEMY_RANDOM_CHECK=1` vergleicht die Liste vor und nach dem
+  Erschaffen; Skripte `~/p09912/tourseries.sh`, Vergleich `em_compare.py` im Notizordner):**
+  - Debug-Discs Seed 4242: **ALLES OK**; geändert wird in 10 Räumen beim Betreten (r103, r111, r113, r11a, r20c, r225,
+    r303, r304, r31d, r330; die übrigen offenen Räume haben beim Betreten keine gewöhnlichen Ganados), z. B. r113 8 von 8
+    an anderen Stellen, r330 Eintrag 0xa4 weggelassen. Listen-Prüfung in allen Räumen „the list's entries unchanged“.
+  - Derselbe Seed zweimal: alle 126 Räume mit genau denselben Gegnern an denselben Stellen. Ohne Cheat gegen mit:
+    120 Räume gleich (alle geschützten), nur die 6 mit veränderten Gegnern verschieden. Seed 777: andere Stellen, 6
+    Räume mit einem weggelassenen. EU- und US-Discs Seed 4242: dieselben Änderungen wie Debug, Listen unverändert, US
+    ALLES OK; EU 125 von 126 (r333 stürzt im Prüfprotokoll `state_trace.cpp playerLog` ab, **auch ohne Cheat und mit
+    dem Stand 0.99.11**: Altbefund, eigener Punkt).
+  - Türen und Ereignisse: im Rundgang starb Leon in r11a vor der Tür (die Gegner standen anders), mit Unsichtbarkeit
+    (`RE4_CHEATS=513`) werden alle 9 veränderten Räume mit und ohne Cheat gleich beurteilt, r11a → r11b in beiden.
+  - `CoreMenuLayoutTest` (Knopf neben „Random items“, eigener Seed gespeichert, Schalter unverändert, Hilfetext), App-Tests
+    beider Varianten je 115 grün, `check_translations.py` ohne Befund (389 Texte), `whole_build.sh` i686 -O2 alle
+    Prüfungen grün, `whole_build_android.sh --abi all` 0 Fehler.
+- **Nicht geprüft:** auf einem Gerät; ein echtes Durchspielen mit dem Cheat (der Rundgang startet jeden Raum frisch per
+  Debug-Start, Spielstände aus dem Spiel heraus nicht); „+1“ kam im Rundgang nicht vor (beim frischen Betreten ist keine
+  Stelle frei; nach Toten oder bei späteren Besuchen schon).
+
+### 8. HD-Textur-Lader übernommen (Wunsch des Projektinhabers)
+
+„Danach kannst du den HD-Textur-Import auch übernehmen in 0.99.12.“ `09912` auf `origin/textures` (132a02a4, enthält
+97e4fe8b) vorgespult, ohne Zusammenführen; Inhalt und Prüfungen siehe den Abschnitt „Branch `textures`“ oben und
+`port/docs/textur-lader-plan.md` (T1–T3, T5, T6 und die Startseite fertig; **T4** Nachladen im Hintergrund und **T7**
+Test-APK/Retroid bleiben auf `textures` und kommen später nach `09912`).
+
+- **Releasetext:** Punkt „HD textures“ unter New, „Cheats“ heißt „Cheats & Mods“ unter Changed, Known issue: beim ersten
+  Zeigen eines Raums mit HD-Texturen kann es kurz ruckeln (die App lädt sie bisher beim ersten Gebrauch sofort, T4
+  fehlt); unter Update der Hinweis, dass `CubeEvil4-TexturePacker.exe` als eigene Datei mit dem Release kommt
+  (Entscheidung des Projektinhabers, Plan Abschnitt 9). Keine Texturen und keine Links (Plan Abschnitt 8).
+- **Geprüft am PC mit dem vereinten Stand:** `whole_build.sh` i686 -O2 alle Prüfungen grün, `gx_gl_check` 0 Fehler,
+  `whole_build_android.sh --abi all` 0 Fehler (Stubs wie erwartet), App-Tests beider Varianten je 120 grün
+  (1 übersprungen: Bilder), `gradlew externalNativeBuildCoreDebug` übersetzt, `check_translations.py` ohne Befund
+  (415 Texte).
+- **Nachtrag (Wunsch des Projektinhabers „Ja, plus Stufe 256“):** `origin/textures` (1aa4c685: nie kleiner als das
+  Originalbild, Packer 1.1 mit Stufe 256, „Half“ nie unter das Original) in `09912` zusammengeführt (7ded5d52, ohne
+  Konflikte); Releasetext mit den Stufen 256/512/1024 und „no image gets smaller than the game's own“. Geprüft wie
+  oben mit dem neuen Stand (Zahlen im Abschnitt „Branch `textures`“).
+- **Nachtrag 2 (Wunsch des Projektinhabers „Ja, nachrüsten“):** `origin/textures` (be38fd0f: Texture Packer 1.2 liest
+  BC7-DDS und JPG, eigener Code `bc7.cpp`, `jpeg.cpp`) in `09912` zusammengeführt (a6eb6589, ohne Konflikte); nur das
+  PC-Programm, README und Doku ändern sich, App und Kern nicht (keine neue APK nötig). Releasetext: der Packer liest
+  DDS mit BC7, PNG und JPG; mit dem Release kommt die 1.2. Geprüft: `texpack_tests` 910 Prüfungen ohne Fehler (BC7
+  10 Dateien bitgleich, JPG 82 Dateien, größte mittlere Abweichung 0,16 gegen Pillow), `run_e2e.py` ohne Fehler
+  (Testbilder am PC frisch erzeugt), dazu die üblichen Prüfungen wie oben.
+- **Nicht geprüft:** auf einem Gerät (Import, Anzeige, Vulkan-ETC2, Speicher auf schwachen Geräten).
+
+### 9. Texture Packer für Android übernommen (Wunsch des Projektinhabers)
+
+„Der Android Textur Lader soll noch zu 0.99.12.“ `09912` auf `origin/textures` (25000c54) vorgespult, ohne
+Zusammenführen (textures enthielt 55ccbeb6 über 365699e4). Neu:
+- PC-Programm 1.3: Kern `packer.h/.cpp` vom Konsolenteil getrennt, liest auch eine ZIP-Datei (`zip.cpp`).
+- Modul `port/android-decomp/packer`: eigene App `com.ast.cubeevil4.texturepacker` 1.3 mit demselben Kern über JNI,
+  46 Texte in 11 Sprachen (`check_translations.py packer`).
+- CubeEvil4: `TextureImportActivity` für den Knopf „Import into CubeEvil4“ des Packers, 3 Texte und Hilfetext in
+  11 Sprachen.
+- Inhalt und Prüfungen des Textur-Laders: Abschnitt „Branch `textures`“ oben und `port/docs/textur-packer-android-plan.md`.
+
+Releasetext: Packer für Android unter New, die HD-Texturen-Zeile nennt ZIP oder Ordner und PC oder Android-App. Unter
+Update stehen beide Packer-Dateien 1.3 (`CubeEvil4-TexturePacker.exe`, `CubeEvil4-TexturePacker-1.3.apk`). Version
+unverändert 0.99.12-rc / 114; ob die APK als neue Version erscheint, entscheidet der Inhaber.
+
+- **Geprüft am PC mit dem Stand 25000c54:**
+  - PC-Packer 1.3 in WSL gebaut: `texpack_tests` 910 Prüfungen ohne Fehler, `run_e2e.py` 36 Punkte ohne Fehler.
+  - `whole_build.sh` i686 -O2 0 Fehler; `whole_build_android.sh --abi all` 0 Fehler (Stubs wie erwartet).
+  - `gx_gl_check` 0 Fehler.
+  - App-Tests: core 123 und classic 123 grün.
+  - Packer: 7 Tests grün, `lintDebug` ohne Fehler (14 Warnungen), `:packer:assembleDebug` gebaut.
+  - `check_translations.py` ohne Befund: 418 Texte in der App, 46 im Packer.
+  - `:app:assembleCoreDebug` (wie Android Studio „Run coreDebug“) mit den frisch gebauten Kern-Bibliotheken gebaut:
+    240 Bibliotheken (je 120 für 32 und 64 bit), `TextureImportActivity` enthalten.
+- **Nicht geprüft:** auf einem Gerät (beide APKs, der Knopf „Import into CubeEvil4“, Android 7–9 mit dem Speicherdialog,
+  SD-Karte, die Zeitschätzung des Packers).
+
 ## Version 0.99.11-rc: Menü-Fokus, Information HUD, Ada mit der TMP (12.11.2026, Branch `09911`)
 
 Version 0.99.11-rc (versionCode 113), Releasetext `port/android-decomp/docs/releases/v0.99.11-rc.md` („Changes since
@@ -10957,7 +12466,7 @@ Daten noch nicht gelaufen). Der Projektinhaber verzichtet auf ein eigenes Logo
   ebenso im Betreff des Fehlerberichts.
 - **Startbildschirm** (nur zu sehen, solange Disc 1 fehlt; sonst startet das
   Spiel sofort): zentriert „Resident Evil 4 Android“, darunter kleiner
-  „By Andreas ‘Andiweli’ Stürmer“, eine Linie, „Start game“, dann
+  „By Andiweli“, eine Linie, „Start game“, dann
   „Controls“ und „Select ISO/GCM files of the November 25, 2004 debug build“
   (ohne Punkt) jeweils zentriert zwischen zwei Linien mit der Tastenbelegung
   und dem Tausch-Schalter bzw. den Import-Zeilen darunter: „Import Disc 1“
@@ -15491,12 +17000,16 @@ die GameCube ließ sie überlaufen (schon vorher so, selten).
 | 0220 `r100.cpp` | Port-Fehler (Sofortwechsel der Spielfigur, `cheats.cpp switchNow`: Raum neu durch eine Tür in sich selbst, und damit auch der Rücksetzpunkt für „Retry“): `R100Init` liest die Startszene s40 (2,2 MB ARAM) nur noch, wenn `r100_StartEvent` läuft und sie freigibt (Raum-Flag 13 frei), und s03/s20 wieder, wenn Bereich 6 schon passiert ist (Flag 0; s03 bis zur Haus-Szene, Flag 3). Vorher fehlten die Haus-Szene („ARAM over: evd/r100s03.evd“) und nach einem Wechsel hinter Bereich 6 auch die Szene nach dem Ganado; EU-/US-`st1_0.rel` lesen genauso vor. In jedem Zustand, den das Spiel selbst erreicht, unverändert. Bericht eines Nutzers 07.11.2026 (Xiaomi, EU-Discs, 0.99.2) |
 | 0221 `r227.cpp` | Port-Fehler (Schnellspeicher der App überall im Raum): `r227_initGondola` stellt die Gondel (Objekt 0xA2, 6850 zwischen den Stationen) beim Laden (`SYS_LOAD_GAME`) nur noch oben ab, wenn der Spieler über der Mitte ihres Wegs steht (Starthöhe + 3425); aus r228 kommend wie bisher immer oben. Die Schreibmaschine des Raums (Bereich 1, Typ SAVE, Höhe 39 500) liegt über der oberen Station: Spielstände des Spiels selbst laden unverändert. Vorher nach dem Schnellladen unterhalb der Gondel: Gondel oben, unten trotzdem „Benutzen“. EU-`st2_3.rel` prüft genauso. Rückmeldung des Projektinhabers 08.11.2026 (Retroid, EU-Discs, 0.99.4) |
 | 0222 `game.cpp` | Port-Fehler (Patch 0195): `GameContinue` setzt nach `GameSave.load` die Ersatzfigur der Story (Ada, HUNK, Krauser, Wesker; `re4_story_char_continue`) wieder ein, bevor `PlSetCostume` und `ContinueWepData` den Spielertyp lesen. Der Continue-Punkt hält absichtlich Leon (`re4_story_char_save`); vorher las `ContinueWepData` eine seit dem Speichern gewechselte Waffe nach Leons Tabelle nach `WEP_DATA_ADDR` in Krausers Spielerarchiv mit seinem Modul `pl0a`, und `OSLink` stürzte ab. Nutzerbericht 09.11.2026 (Xiaomi peridot, 0.99.5: Absturz bei Tod oder Retry mit anderen Figuren) |
-| 0223 `light.cpp` | Port-Funktion (Wunsch des Projektinhabers 09.11.2026, aus dem OUYA-Zweig, dort Patch 0900): Sichtweite im App-Menü (Potato-Modus). `cLightMgr::setFog` und `hokanMove` geben GX den Nebel aus `re4_view_distance` (`runtime/view_distance.cpp`: Beginn und Ende mal 1 / 0,75 / 0,5, das Ende nicht unter 6 m, Räume ohne Nebel unverändert) und setzen die Sichtgrenze auf dieses Ende; `LightEnv.Fog` bleibt. `hokanMove` setzt den Nebel neu, wenn das Menü umgeschaltet hat (`re4_view_distance_changed`): wirkt sofort. Bei „Normal“ genau wie das Spiel. |
+| 0223 `light.cpp` | Port-Funktion (Wunsch des Projektinhabers 09.11.2026, aus dem OUYA-Zweig, dort Patch 0900): Sichtweite im App-Menü (Potato-Modus). `cLightMgr::setFog` und `hokanMove` geben GX den Nebel aus `re4_view_distance` (`runtime/view_distance.cpp`: Beginn und Ende mal 1 / 0,75 / 0,5, das Ende nicht unter 6 m, Räume ohne Nebel unverändert) und setzen die Sichtgrenze auf dieses Ende; `LightEnv.Fog` bleibt. `hokanMove` setzt den Nebel neu, wenn das Menü umgeschaltet hat (`re4_view_distance_changed`): wirkt sofort. Bei „Normal“ genau wie das Spiel. **Seit 0.99.18:** ein Aufruf `re4_view_fog(Typ, far_play_ratio, &Beginn, &Ende, &Sichtgrenze)` liefert Nebel und Sichtgrenze; neu „Sehr kurz“ (35 %, Nebel der GPU dicht an der Sichtgrenze wie Patch 0901 des OUYA-Zweigs) und „Weit“ (Nebel des Raums, Sichtgrenze bis 95 % Dichte, nie über das Nebelende); Abschnitt 2 von 0.99.18. |
 | 0224 `cam_motion.cpp` | Port (undefiniertes Verhalten im Originalcode): `CameraMotion::move` beginnt `pos`, `at`, `fov` mit (0, 0, 0). Die Röntgen-Kameras von r330s00 (`etc_s00_0NN.fcv`) haben kein Ziel-Gelenk; das uninitialisierte `at` machte im Port die Kamera NaN, die Monitore des Operationsraums blieben grün. Nutzerbericht 09.11.2026 (zwei Bilder) |
 | 0225 `roomdata.cpp` | Port-Fehler (`.gci`-Import bis 0.99.6, `runtime/gci.cpp` drehte `RoomNo` als u16): `cRoomData::load`/`clear` drehen die Kennungen der Raum-Datensätze eines Spielstands zurück, wenn mit umgedrehten Kennungen mehr Räume passen als mit den eigenen (Spielstände der App bleiben unberührt). Vorher verloren importierte Spielstände 109 von 121 Räumen, r102/r201, r103/r301, r204/r402, r304/r403 tauschten ihre Merker (Garrador in r201 angekettet, Schlüssel fehlt). Nutzerbericht 09.11.2026 (17 `.gci`, EU) |
 | 0226 `r201.cpp` | Sicherheitsnetz neben 0225: Merker 0 von r201 („Garrador tot“) ohne sein Todes-Bit in der Gegnerliste (Eintrag 0x56) wird zurückgesetzt, der Garrador kommt frei (nicht bei Sprungpunkt 2). Für Spielstände, die nach einem alten Import in der App neu gespeichert wurden. Nutzerbericht 09.11.2026 |
 | 0174 `pl_wep.cpp` | Auto-Zielen: Startwinkel von der Waffenhand zum Zielpunkt im Maß von `PlWepAutoTrack` statt von den Füßen (Laser über dem Gegner); dazu `gyro.cpp`: Handzittern beendet die Zielhilfe nicht. Bericht des Projektinhabers 01.11.2026. Port-Patch |
 | 0228 `card.cpp` | Krausers Bogen in der Geschichte (0.99.10, Nutzerwunsch über den Projektinhaber, seit dem Retroid-Test bei jedem Raumstart statt Cheat-Knopf 10, `runtime/cheats.cpp` `giveBow`) und Weskers Schalldämpfer (0x3F, `giveSilencer`): `cCard::makeSaveData` lässt im Bild der Spielstand-Datei Bogen (0x52), Pfeile (0x72) und Schalldämpfer weg, macht aus der Pistole mit Schalldämpfer in der Hand die Pistole ohne und aus dem Bogen in der Hand leere Hände (belegter Platz, `weapon_no`/`weapon_type` des Spielblocks), denn ein Spielstand ist immer Leons und Leon hat keine Datei für Waffe 0x1C (`re4_story_char_card_items`). Das laufende Spiel und der Fortsetzungspunkt behalten den Bogen. Port-Funktion |
+| 0229 `ss_model.cpp` | Weskers Pistole im Koffer: `wep43Init(type)` statt immer mit Schalldämpfer (0.99.11, Abschnitt 4a) |
+| 0230 `pl_machine.cpp`, `pl_handgun.cpp`, `pl_rifle.cpp` | Adas Nachladen mit ihren eigenen Waffen auf jeder Stufe mit ihrer Bewegung der Stufe 0 (0.99.11, Abschnitt 1) |
+| 0231 `em_set.cpp` | Cheat „Random enemies“ (0.99.12, Entscheidung des Projektinhabers, `port/docs/gegner-randomizer-plan.md` Stufe 1): `EmSetFromList` fragt `runtime/enemy_random.cpp` beim Raumbeginn, ob ein Eintrag wie er ist, weggelassen oder als Kopie mit der Stelle eines anderen Eintrags des Raums erscheint, und am Ende, ob eine Kopie dazukommt (ihr Tod an einem leeren Eintrag); die gespeicherte Gegnerliste wird nie geschrieben. 0.99.13 (Stufe 1.5): am Ende fragt eine Schleife bis -1 (bis zu zwei Kopien). Port-Merkmal |
+| 0232 `r226.cpp`, `emrock.cpp`, `pl0f.cpp`, `objTrolley.cpp`, `em39.cpp`, `em2b.cpp`, `em32.cpp` | „Sanftere QTEs“ (0.99.15, Wunsch des Projektinhabers; Schalter der Komfortsteuerung, Standard an): die QTE-Abfragen des Schwierigkeitsrangs (74 Stellen: Statuen-Lauf, Felsbrocken, Schwimmen nach Del Lago, Lore, Krauser, El Gigantes Parasit, U-3) lesen `re4_qte_level()` (`runtime/qte_touch.cpp`): mit dem Schalter in Professional höchstens Rang 5 (Normals Start), sonst der Rang des Spiels; Schaden und Gegnerverhalten lesen weiter `pG->Game_level`. Port-Merkmal |
 
 Neuen Patch erzeugen: Datei aus `whole_prepare.rewrite()` kopieren, ändern,
 `port/tools/whole_make_patch.py NAME pfad/im/repo kopie` ausführen. Mehrere

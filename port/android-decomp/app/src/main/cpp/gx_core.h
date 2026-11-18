@@ -65,10 +65,22 @@ bool ReadKeyList(const std::string &path, std::vector<ShaderKey> *keys);
 bool WriteKeyList(const std::string &path, const std::vector<ShaderKey> &keys);
 
 // A texture as the renderer keeps it: decoded RGBA8 with its levels (id: the API's handle; GL: the texture name).
+// An HD replacement of the player's texture pack (tex_pack.h) instead: ETC2 texels, `lodShift` levels finer than the
+// game's texture (log2 of the sizes), `hdBytes` of the pack's budget.
 struct Texture {
   unsigned id = 0;
   unsigned width = 0, height = 0, levels = 1;
+  float lodShift = 0.0f;
+  std::uint32_t hdBytes = 0;
 };
+
+class TexPack;
+class TexLoader;
+}  // namespace re4gx
+namespace c4tex {
+struct Entry;
+}
+namespace re4gx {
 
 // An EFB copy to a texture: the texels as the matching texture format reads
 // them (8-bit copies as I8: value in all four channels; two-channel copies as
@@ -227,6 +239,37 @@ struct GxCore {
   double replWindow = 0, replSpent = 0;  // the time spent putting them in, per 16 ms (DrainReplacements)
   void DrainReplacements();
   void PutReplacement(unsigned id, const struct GxTexReplacement &rep);
+  // the player's HD texture pack (GxRenderer::SetTexturePack, port/docs/textur-lader-plan.md): Upload finds a game
+  // texture's replacement by Dolphin's key and loads its ETC2 levels from texPackLevel on (1: "Sharpness: Half"),
+  // while the replacements take at most texPackBudget bytes (hdBytes now); never in the PSone demake.
+  // texturesDropped: the pack changed, every texture went, the game core must send them again (TakeTexturesDropped)
+  std::shared_ptr<const TexPack> texPack;
+  unsigned texPackLevel = 0;
+  std::size_t texPackBudget = 0, hdBytes = 0;
+  bool texPackActive = false, texturesDropped = false;
+  std::vector<std::uint8_t> hdData;  // a replacement's texels on their way to the GPU
+  void SetTexturePack(std::shared_ptr<const TexPack> pack, unsigned firstLevel, std::size_t budgetBytes);
+  // the replacement of the texture Upload is at (into tex); false: none (or not read yet), keep the game's
+  bool UploadHd(const Re4GxTexture &t, const std::uint8_t *data, std::size_t bytes, Texture &tex);
+  // T4 (0.99.18): the replacements read in the background (TexLoader): UploadHd asks for the read and the game's own
+  // texture shows meanwhile; ApplyHd, at the start of each chunk, puts the finished ones on the GPU in its place
+  // (within `budgetMs`, at least one). hdWaiting: the textures asked for (by key), each with its ticket and the bytes
+  // of the budget kept for it (hdReserved). RE4_TEX_PACK_SYNC=1: read on the render thread as before (tests).
+  struct HdWait {
+    std::uint64_t ticket = 0;
+    std::size_t reserved = 0;
+    std::chrono::steady_clock::time_point since;
+  };
+  std::shared_ptr<TexLoader> hdLoader;
+  std::unordered_map<std::uint64_t, HdWait> hdWaiting;
+  std::size_t hdReserved = 0;
+  std::uint64_t hdTicket = 0;
+  void ApplyHd(double budgetMs);
+  void CancelHd();
+  // a read replacement onto the GPU (ETC2, or decoded where the API cannot take it): `gameW` x `gameH` the game's
+  // texture; false when the API failed or the decoded levels do not fit the budget
+  bool PutHd(const c4tex::Entry &e, unsigned first, unsigned gameW, unsigned gameH, const std::vector<std::uint8_t> &data,
+             Texture &tex);
   std::unordered_map<std::uint32_t, Copy> copies;  // by destination address
   std::unordered_map<std::uint64_t, Texture> paletted; // copies read through a palette
   bool dofStrong = false;
@@ -300,6 +343,7 @@ struct GxCore {
   struct Bound {
     GLuint id = 0;
     unsigned width = 1, height = 1, levels = 1;
+    float lodShift = 0.0f;  // an HD replacement's (Texture::lodShift): its sampler's levels move by it
   } bound[8];
   XfBlock xf = {};
   // the XF parts as last sent (UploadXf): a part the game wrote again with the same values is not
@@ -585,6 +629,36 @@ struct GxCore {
   // The picture's sources onto the tracked slots: near ones merged, each to the slot it was in (nearest within
   // its size), new ones into free slots; a slot not seen fades out where it was and is free after 16 pictures.
   void FlareTrack();
+  // --- bloom (GxRenderer::SetBloom, 0.99.13) -------------------------------------------------------------------
+  // After the scene's last 3D draw of the main view (the lens flares' FlareScan: the HUD, texts, fades and menus come
+  // after it) and before the lens flares, the scene's bright parts glow softly (BloomPass; gx_fixed_shaders.h
+  // kBloomPickFs/kBloomBlurFs/kBloomAddFs): only what lies above a threshold, so dark rooms stay dark; not where
+  // "Halos + lens flares" draw their halo at a light (the two would glow twice); not on the game's menu screens
+  // (RE4_GX_CHUNK_STILL), nor in movies and 2D pictures (no 3D draw); in the in-between pictures of 60 FPS as in the
+  // game's own (their Run takes the same way). The CRT, colour, PSone and FXAA passes at the display copy take it with
+  // the picture.
+  int bloomLevel = 0;  // 0 off, 1 light, 2 strong
+  bool bloomFailed = false, bloomDone = false;
+  std::uint32_t bloomAfter = 0;  // the op offset after the scene's last 3D draw (0: no bloom in this chunk)
+  struct BloomLook {
+    // the threshold from the scene's key (0.99.14, kBloomKeyFs): base + slope * key, within lo .. hi
+    float base, slope, lo, hi;
+    float strength;  // the wide glow (after all blurs)
+    float core;      // the narrow glow (after the first blur pair; 0.99.14)
+    int blurs;       // blur pairs (horizontal + vertical), the n-th spread 1 + n / 2 texels a tap
+    float keepMax;   // a bloom texel's share of its brightest tap (the rest their mean; 0.99.14)
+    float cap, least;  // the budget: the scene's share at full weight above which the bloom scales down, at most to least
+    float power;       // a tap's weight: its way from the threshold to white, to this power (0.99.13: 2)
+    static float Spread(int n) { return 1.0f + 0.5f * static_cast<float>(n); }
+  };
+  static const BloomLook &BloomLookOf(int level);
+  // The scene's part of the EFB in the renderer's texels (x, y, w, h): the scissor of the draws now (the main view's,
+  // right after its last 3D draw: the letterbox bars outside) within the XF viewport; false when it is too small.
+  bool BloomRegion(int out[4]) const;
+  // The lights where the lens flares draw a halo (with "Halos + lens flares"): up to 8, x, y, radius in the
+  // renderer's texels, w 1 (unused: 0).
+  void BloomHalos(float out[8][4]) const;
+  virtual void BloomPass() = 0;
   // One op of the chunk at `at` (Run); the next op's place (the end when the op is cut off).
   std::uint32_t Op(const Re4GxChunk &chunk, std::uint32_t at);
   // the GPU side of the ops (Op): the API renderer's
@@ -690,8 +764,17 @@ struct GxCore {
   // a level in BC1 (kind 1) or BC3 (kind 3) blocks (texture packs; only where gGxTextureBc)
   virtual void CompressedLevel(unsigned, unsigned, unsigned, unsigned, unsigned, const std::uint8_t *, std::size_t) {}
   virtual void EndTexture(unsigned id, unsigned levels) = 0;
+  // an HD replacement's texture (UploadHd): `levels` levels in a compressed format (c4tex::Encoding), each level's
+  // blocks, then EndTexture; 0 when the API or the device cannot (the game's texture stays)
+  virtual unsigned BeginCompressed(unsigned /*encoding*/, unsigned /*width*/, unsigned /*height*/, unsigned /*levels*/) {
+    return 0;
+  }
+  virtual void CompressedLevel(unsigned /*id*/, unsigned /*level*/, unsigned /*width*/, unsigned /*height*/,
+                               const std::uint8_t * /*data*/, std::size_t /*bytes*/) {}
   virtual void ClearRect(const GxClearRect &r) = 0;
-  GxSamplerDesc SamplerFor(std::uint32_t mode0, std::uint32_t mode1, unsigned levels, bool point) const;
+  // lodShift: an HD replacement's (Bound::lodShift)
+  GxSamplerDesc SamplerFor(std::uint32_t mode0, std::uint32_t mode1, unsigned levels, bool point,
+                           float lodShift = 0.0f) const;
   std::vector<std::uint8_t> decoded;  // Upload's texels of a level
   // ---- end of the part moved from GlRenderer ----
 
@@ -717,6 +800,7 @@ struct GxCore {
   void SetColour(int mode, int level);
   void SetFlares(bool on);
   void SetFlareHalos(bool on);
+  void SetBloom(int level);
   void SetDofStrong(bool on);
   void SetShownRows(int top, int bottom);
   void SetWiden(float factor);

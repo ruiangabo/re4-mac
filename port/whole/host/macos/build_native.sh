@@ -12,10 +12,12 @@ for f in gx_gl.cpp gx_gl_shader.cpp gx_fixed_shaders.h; do
   sed 's/#version 300 es/#version 410 core/g' "$CPP/$f" > "$OUT/src/$f"
 done
 IMGUI=${IMGUI:-/Volumes/RE4CS/imgui}
-INC="-I$OUT/src -I$HERE -I$CPP -I$RT -I$IMGUI -I$IMGUI/backends -I/opt/homebrew/include"
+TEXPACK="$ROOT/port/tools/texpack"   # upstream's c4tex HD pack loader (tex_pack.cpp) and its ETC2 decoder
+INC="-I$OUT/src -I$HERE -I$CPP -I$RT -I$TEXPACK -I$IMGUI -I$IMGUI/backends -I/opt/homebrew/include"
 FLAGS="-arch arm64 -std=c++17 -O2 -DGL_SILENCE_DEPRECATION $INC"
 for f in gx_gl.cpp gx_gl_shader.cpp; do c++ $FLAGS -c "$OUT/src/$f" -o "$OUT/${f%.cpp}.o"; done
-for f in gx_core.cpp gx_renderer.cpp gx_texture.cpp; do c++ $FLAGS -c "$CPP/$f" -o "$OUT/${f%.cpp}.o"; done
+for f in gx_core.cpp gx_renderer.cpp gx_texture.cpp tex_pack.cpp; do c++ $FLAGS -c "$CPP/$f" -o "$OUT/${f%.cpp}.o"; done
+c++ $FLAGS -c "$TEXPACK/etc2.cpp" -o "$OUT/etc2.o"
 for f in core_ipc.cpp core_ipc_client.cpp; do c++ $FLAGS -c "$RT/$f" -o "$OUT/${f%.cpp}.o"; done
 mkdir -p "$OUT/imgui"
 for f in imgui.cpp imgui_draw.cpp imgui_tables.cpp imgui_widgets.cpp backends/imgui_impl_sdl3.cpp backends/imgui_impl_opengl3.cpp; do

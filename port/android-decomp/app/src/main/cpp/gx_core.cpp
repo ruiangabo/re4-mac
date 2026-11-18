@@ -3,7 +3,9 @@
 #include <chrono>
 #include "gx_core.h"
 
+#include "etc2.h"
 #include "gx_texture.h"
+#include "tex_pack.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1309,7 +1311,31 @@ void GxCore::SetOptions(const GxOptions &options) { this->options = options; }
 void GxCore::SetDepthSink(DepthSink sink) { this->depthSink = std::move(sink); }
 void GxCore::SetFxaa(bool on) { this->fxaaOn = on; }
 void GxCore::SetSharpen(int level) { this->sharpLevel = level < 0 ? 0 : level > 2 ? 2 : level; }
-void GxCore::SetPsx(bool on) { this->psxOn = on; }
+void GxCore::SetPsx(bool on) {
+  if (on == psxOn) return;
+  this->psxOn = on;
+  // the PSone demake keeps the game's own textures: the replacements go or come back
+  if (texPack) SetTexturePack(texPack, texPackLevel, texPackBudget);
+}
+void GxCore::SetTexturePack(std::shared_ptr<const TexPack> pack, unsigned firstLevel, std::size_t budgetBytes) {
+  texPackBudget = budgetBytes;
+  const bool active = pack && pack->IsOpen() && pack->Count() > 0 && !psxOn;
+  if (pack == texPack && firstLevel == texPackLevel && active == texPackActive) return;
+  const bool matters = active || texPackActive;
+  texPack = std::move(pack);
+  texPackLevel = firstLevel;
+  texPackActive = active;
+  if (matters) {
+    DropTextures();
+    texturesDropped = true;
+  }
+  // T4 (0.99.18): a loader thread for this pack (none for the old one; RE4_TEX_PACK_SYNC=1: none, the render thread
+  // reads as before). Read and not yet on the GPU at most 24 MB in the 32-bit app, 64 MB in the 64-bit one.
+  static const bool sync = std::getenv("RE4_TEX_PACK_SYNC") && *std::getenv("RE4_TEX_PACK_SYNC") == '1';
+  hdLoader.reset();
+  if (texPackActive && !sync)
+    hdLoader = std::make_shared<TexLoader>(texPack, (sizeof(void *) == 4 ? 24u : 64u) << 20);
+}
 void GxCore::SetCrt(int level) { this->crtLevel = level < 0 ? 0 : level > 2 ? 2 : level; }
 void GxCore::SetColour(int mode, int level) {
   this->colourMode = mode < 0 || mode > 2 ? 0 : mode;
@@ -1317,6 +1343,78 @@ void GxCore::SetColour(int mode, int level) {
 }
 void GxCore::SetFlares(bool on) { this->flaresOn = on; }
 void GxCore::SetFlareHalos(bool on) { this->flareHalos = on; }
+void GxCore::SetBloom(int level) { this->bloomLevel = level < 0 ? 0 : level > 2 ? 2 : level; }
+const GxCore::BloomLook &GxCore::BloomLookOf(int level) {
+  // light: the brightest parts only, a soft glow (two blurs, about 13 game pixels); strong: a little more of the
+  // bright parts, wider (three blurs, about 19) and stronger. Until 0.99.13 a fixed threshold (light 0.72, strong
+  // 0.62), the weight's square and the wide glow alone, added: in the game hardly to be seen (the project owner,
+  // 13.11.2026). 0.99.14: the threshold from the scene's key (night rooms, key 0.13-0.2: light 0.70, strong 0.66; the
+  // dock 0.37: 0.77 / 0.73; the title 0.35-0.43: 0.76-0.79 / 0.72-0.75; day 0.53: 0.83 / 0.79), the weight to the
+  // fourth power (lights near white count, a lit plank or hair at 0.85 hardly: with the square and the brightest tap
+  // kept the dock's wet planks and Leon's collar glowed), a quarter of the brightest tap kept, a narrow core, the
+  // budget for bright pictures (the title's sky about as before, a muzzle flash at least as before), laid over as a
+  // screen (kBloomAddFs). Chosen on the PC with the renders of r111, r113, r11a, r11c, r105, r203, r209, r20a, the
+  // dock (r11b), muzzle flashes and the EU title (port/docs/whole-program-status.md, 0.99.14).
+  static BloomLook light{0.62f, 0.4f, 0.70f, 0.88f, 0.7f, 1.0f, 2, 0.25f, 0.012f, 0.4f, 4.0f};
+  static BloomLook strong{0.58f, 0.4f, 0.66f, 0.86f, 0.9f, 1.2f, 3, 0.25f, 0.018f, 0.4f, 4.0f};
+  // (the PC's choice of the values: RE4_GX_BLOOM_LOOK="base,slope,lo,hi,strength,core,keepMax,cap,least,power" for the
+  // level RE4_GX_BLOOM draws, gx_chunk_render)
+  static bool read = false;
+  if (!read) {
+    read = true;
+    if (const char *e = std::getenv("RE4_GX_BLOOM_LOOK")) {
+      BloomLook &l = level >= 2 ? strong : light;
+      std::sscanf(e, "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f", &l.base, &l.slope, &l.lo, &l.hi, &l.strength, &l.core, &l.keepMax,
+                  &l.cap, &l.least, &l.power);
+    }
+  }
+  return level >= 2 ? strong : light;
+}
+bool GxCore::BloomRegion(int out[4]) const {
+  // the scissor (registers in EFB pixels + 342, minus the offset, BP 0x59; as ApplyState)
+  const int xoff = static_cast<int>(bp[0x59] & 0x3FF) * 2, yoff = static_cast<int>((bp[0x59] >> 10) & 0x3FF) * 2;
+  int x0 = std::max(0, static_cast<int>((bp[0x20] >> 12) & 0x7FF) - xoff);
+  int y0 = std::max(0, static_cast<int>(bp[0x20] & 0x7FF) - yoff);
+  int x1 = std::min(kEfbWidth, static_cast<int>((bp[0x21] >> 12) & 0x7FF) - xoff + 1);
+  int y1 = std::min(kEfbHeight, static_cast<int>(bp[0x21] & 0x7FF) - yoff + 1);
+  // within the XF viewport (its centre at 342 + the EFB's), as the autofocus reads it
+  const float halfW = AsFloat(xfReg[0x1A]), halfH = -AsFloat(xfReg[0x1B]);
+  if (halfW > 0.0f && halfH > 0.0f) {
+    const float cx = AsFloat(xfReg[0x1D]) - 342.0f, cy = AsFloat(xfReg[0x1E]) - 342.0f;
+    x0 = std::max(x0, static_cast<int>(std::lround(cx - halfW)));
+    y0 = std::max(y0, static_cast<int>(std::lround(cy - halfH)));
+    x1 = std::min(x1, static_cast<int>(std::lround(cx + halfW)));
+    y1 = std::min(y1, static_cast<int>(std::lround(cy + halfH)));
+  }
+  if (x1 - x0 < 32 || y1 - y0 < 32)
+    return false;
+  out[0] = Lo(x0);
+  out[1] = Lo(y0);
+  out[2] = Lo(x1) - Lo(x0);
+  out[3] = Lo(y1) - Lo(y0);
+  return true;
+}
+void GxCore::BloomHalos(float out[8][4]) const {
+  std::memset(out, 0, sizeof(float) * 8 * 4);
+  if (!flaresOn || !flareHalos)
+    return;
+  // the lights that flare now (seen in 4 pictures in a row: FlareTrack), the largest first; the halo reaches about
+  // three times the light's radius (the flare shader's glow)
+  int n = 0;
+  int order[kFlareSlots];
+  for (int i = 0; i < kFlareSlots; i++)
+    if (flareSlot[i].lost == 0 && flareSlot[i].age >= 4)
+      order[n++] = i;
+  std::sort(order, order + n, [&](int a, int b) { return flareSlot[a].r > flareSlot[b].r; });
+  const float sc = Sf(1);
+  for (int k = 0; k < n && k < 8; k++) {
+    const FlareSlot &s = flareSlot[order[k]];
+    out[k][0] = s.x * sc;
+    out[k][1] = s.y * sc;
+    out[k][2] = std::max(3.0f * s.r, 6.0f) * sc;
+    out[k][3] = 1.0f;
+  }
+}
 void GxCore::SetDofStrong(bool on) { this->dofStrong = on; }
 void GxCore::SetTvFilter(bool on) { this->tvFilter = on; }
 void GxCore::SetBandwidthSave(bool on) { this->bwSave = on; }
@@ -1436,6 +1534,16 @@ void GxCore::Run(const Re4GxChunk &chunk) {
     m.stats.resets++;
     m.DropTextures();
   }
+  // T4 (0.99.18): the HD replacements read in the background since the last chunk take their game textures' place,
+  // for at most 4 ms of GPU uploads a chunk (RE4_TEX_PACK_APPLY_MS), three times that while 32 or more wait (a room's
+  // first pictures: they are in place sooner), 50 ms while the screen is black
+  if (!m.interpPass && m.hdLoader) {
+    static const double applyMs = [] {
+      const char *v = std::getenv("RE4_TEX_PACK_APPLY_MS");
+      return v && *v ? std::atof(v) : 4.0;
+    }();
+    m.ApplyHd(m.viBlack ? std::max(applyMs, 50.0) : m.hdWaiting.size() >= 32 ? applyMs * 3 : applyMs);
+  }
   const bool uploaded = !m.interpPass && m.uploadedBy == &chunk && m.uploadedSequence == chunk.sequence;
   m.uploadedBy = nullptr;
   // merged draw calls: the chains and their indices (after the chunk's in ibo)
@@ -1466,6 +1574,11 @@ void GxCore::Run(const Re4GxChunk &chunk) {
   m.flareAfter = m.flaresOn && !m.skipDraws && !(chunk.flags & RE4_GX_CHUNK_STILL) ? m.FlareScan(chunk) : 0;
   m.flareDone = false;
   m.flareCands.clear();
+  // bloom (0.99.13): at the same place, before the lens flares (they are not bloomed again)
+  m.bloomAfter = m.bloomLevel > 0 && !m.bloomFailed && !m.skipDraws && !(chunk.flags & RE4_GX_CHUNK_STILL)
+                     ? (m.flaresOn ? m.flareAfter : m.FlareScan(chunk))
+                     : 0;
+  m.bloomDone = false;
   std::uint32_t at = 0;
   while (at < chunk.opWords) {
     m.curOpAt = at;
@@ -1476,6 +1589,10 @@ void GxCore::Run(const Re4GxChunk &chunk) {
       at = m.DrawMerged(chunk, at);
     else
       at = m.Op(chunk, at);
+    if (m.bloomAfter && !m.bloomDone && at >= m.bloomAfter) {
+      m.bloomDone = true;
+      m.BloomPass();
+    }
     if (m.flareAfter && !m.flareDone && at >= m.flareAfter)
       m.FlarePass();
   }
@@ -2157,6 +2274,7 @@ void GxCore::BindTexture(const Re4GxTexture &t, const Re4GxChunk &chunk) {
   b.width = t.width ? t.width : 1;
   b.height = t.height ? t.height : 1;
   b.levels = 1;
+  b.lodShift = 0.0f;
   if (t.flags & RE4_GX_TEX_COPY) {
     boundKey[map] = 1ull << 63 | t.address;
     // the in-between pass reads its own copies, and the real ones of the picture before
@@ -2200,14 +2318,23 @@ void GxCore::BindTexture(const Re4GxTexture &t, const Re4GxChunk &chunk) {
   }
   b.id = it->second.id;
   b.levels = it->second.levels;
+  b.lodShift = it->second.lodShift;
 }
 
 void GxCore::Forget(std::uint64_t key) {
   Touched(); // a deleted texture is unbound
   auto it = textures.find(key);
   if (it != textures.end()) {
+    hdBytes -= it->second.hdBytes;
+    stats.hdBytesNow = hdBytes;
     DeleteTexture(it->second.id);
     textures.erase(it);
+  }
+  // its replacement, if still being read, is not wanted any more (ApplyHd drops the read)
+  auto w = hdWaiting.find(key);
+  if (w != hdWaiting.end()) {
+    hdReserved -= std::min(hdReserved, w->second.reserved);
+    hdWaiting.erase(w);
   }
 }
 
@@ -2216,9 +2343,67 @@ void GxCore::DropTextures() {
   for (auto &t : textures)
     DeleteTexture(t.second.id);
   textures.clear();
+  hdBytes = 0;
+  stats.hdBytesNow = 0;
   for (auto &t : paletted)
     DeleteTexture(t.second.id);
   paletted.clear();
+  CancelHd();
+}
+
+void GxCore::CancelHd() {
+  if (hdLoader)
+    hdLoader->Cancel();
+  hdWaiting.clear();
+  hdReserved = 0;
+  stats.hdWaitingNow = 0;
+}
+
+void GxCore::ApplyHd(double budgetMs) {
+  if (!hdLoader)
+    return;
+  using Clock = std::chrono::steady_clock;
+  const Clock::time_point start = Clock::now();
+  TexLoader::Done d;
+  bool any = false;
+  while ((!any || std::chrono::duration<double, std::milli>(Clock::now() - start).count() < budgetMs) &&
+         hdLoader->Take(d)) {
+    any = true;
+    stats.hdLoaderReadUs += d.readUs;
+    auto w = hdWaiting.find(d.job.key);
+    if (w == hdWaiting.end() || w->second.ticket != d.job.ticket) {
+      stats.hdStale++;  // forgotten, or asked for again since
+      continue;
+    }
+    hdReserved -= std::min(hdReserved, w->second.reserved);
+    const Clock::time_point since = w->second.since;
+    hdWaiting.erase(w);
+    auto it = textures.find(d.job.key);
+    if (it == textures.end()) {
+      stats.hdStale++;
+      continue;
+    }
+    if (!d.ok) {
+      stats.hdReadErrors++;
+      continue;
+    }
+    Texture tex;
+    if (!PutHd(d.job.entry, d.job.first, it->second.width, it->second.height, d.data, tex))
+      continue;
+    // the game's own texture goes, the replacement takes its key
+    Touched();
+    hdBytes -= it->second.hdBytes;
+    DeleteTexture(it->second.id);
+    it->second = tex;
+    hdBytes += tex.hdBytes;
+    stats.hdBytesNow = hdBytes;
+    stats.hdTextures++;
+    stats.hdSwapped++;
+    const std::uint64_t waited = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - since).count());
+    stats.hdWaitMaxUs = std::max(stats.hdWaitMaxUs, waited);
+  }
+  stats.hdWaitingNow = hdWaiting.size();
 }
 
 void GxCore::EfbCopy(std::uint32_t control) {
@@ -2577,6 +2762,18 @@ void GxCore::Upload(const Re4GxTexture &t, const Re4GxChunk &chunk) {
   if (t.dataBytes == 0 || t.dataOffset + t.dataBytes > chunk.blobBytes)
     return;
   Texture tex;
+  // the player's HD texture pack: the replacement instead, if it has one
+  if (texPackActive && UploadHd(t, chunk.blob + t.dataOffset, t.dataBytes, tex)) {
+    auto old = textures.find(key);
+    if (old != textures.end()) {
+      hdBytes -= old->second.hdBytes;
+      DeleteTexture(old->second.id);
+    }
+    hdBytes += tex.hdBytes;
+    stats.hdBytesNow = hdBytes;
+    textures[key] = tex;
+    return;
+  }
   tex.width = t.width;
   tex.height = t.height;
   tex.levels = t.levels ? t.levels : 1;
@@ -2642,8 +2839,11 @@ void GxCore::Upload(const Re4GxTexture &t, const Re4GxChunk &chunk) {
   tex.levels = std::max(1u, levels);
   EndTexture(tex.id, tex.levels);
   auto old = textures.find(key);
-  if (old != textures.end())
+  if (old != textures.end()) {
+    hdBytes -= old->second.hdBytes;
+    stats.hdBytesNow = hdBytes;
     DeleteTexture(old->second.id);
+  }
   textures[key] = tex;
   stats.textures++;
 }
@@ -2698,7 +2898,185 @@ void GxCore::DrainReplacements() {
   replSpent += std::chrono::duration<double, std::milli>(clock::now() - t0).count();
 }
 
-GxSamplerDesc GxCore::SamplerFor(std::uint32_t mode0, std::uint32_t mode1, unsigned levels, bool point) const {
+bool GxCore::UploadHd(const Re4GxTexture &t, const std::uint8_t *data, std::size_t bytes, Texture &tex) {
+  stats.hdLookups++;
+  using Clock = std::chrono::steady_clock;
+  const auto us = [](Clock::time_point a, Clock::time_point b) {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(b - a).count());
+  };
+  const Clock::time_point t0 = Clock::now();
+  const std::size_t level0 = GxTextureLevelBytes(t.format, t.width, t.height);
+  if (level0 == 0 || level0 > bytes)
+    return false;
+  const std::uint8_t *palette = nullptr;
+  std::size_t paletteBytes = 0;
+  if (GxIsPaletted(t.format)) {
+    const unsigned offset = (t.tlut & 0x3FF) << 9;
+    palette = tlut.data() + offset;
+    paletteBytes = kTlutBytes - offset;
+  }
+  // Dolphin names a texture the game binds with mip levels with "_m"
+  const TexKey k = DolphinKey(t.format, t.width, t.height, t.levels > 1, data, level0, palette, paletteBytes);
+  const c4tex::Entry *e = texPack->Find(k);
+  // RE4_TEX_PACK_LOG=1: every texture's Dolphin name, whether the pack has it; RE4_TEX_PACK_ONLY=<hex>: only this
+  // replacement (tests: which one changes a picture)
+  static const bool logKeys = std::getenv("RE4_TEX_PACK_LOG") && *std::getenv("RE4_TEX_PACK_LOG") == '1';
+  static const char *only = std::getenv("RE4_TEX_PACK_ONLY");
+  if (logKeys)
+    GXLOG("texture pack: tex1_%ux%u%s_%016llx%s%s_%u (%u levels, tlut %03x) %s%s", t.width, t.height, k.mip ? "_m" : "",
+          static_cast<unsigned long long>(k.tex), k.hasTlut ? "_" : "",
+          k.hasTlut ? ([&] {
+            static char b[20];
+            std::snprintf(b, sizeof(b), "%016llx", static_cast<unsigned long long>(k.tlut));
+            return b;
+          }())
+                    : "",
+          t.format, t.levels, t.tlut, e ? "replaced, kind " : "not in the pack", e ? std::to_string(e->encoding).c_str() : "");
+  if (e && only && std::strtoull(only, nullptr, 16) != k.tex)
+    e = nullptr;
+  const Clock::time_point t1 = Clock::now();
+  stats.hdKeyUs += us(t0, t1);
+  stats.loadUs += us(t0, t1);
+  // RE4_TEX_PACK_DUMP=<folder>: the game's own first level of each replaced texture as RGBA8 (<hash>_<w>x<h>.rgba)
+  static const char *dumpDir = std::getenv("RE4_TEX_PACK_DUMP");
+  if (e && dumpDir) {
+    std::vector<std::uint8_t> rgba;
+    GxDecodeTexture(data, level0, t.format, t.width, t.height, palette,
+                    palette ? std::min<unsigned>(GxPaletteEntries(t.format), static_cast<unsigned>(paletteBytes / 2)) : 0,
+                    (t.tlut >> 10) & 3, rgba);
+    char name[512];
+    std::snprintf(name, sizeof(name), "%s/%016llx_%ux%u.rgba", dumpDir, static_cast<unsigned long long>(k.tex), t.width,
+                  t.height);
+    if (FILE *f = std::fopen(name, "wb")) {
+      std::fwrite(rgba.data(), 1, rgba.size(), f);
+      std::fclose(f);
+    }
+  }
+  if (!e) {
+    stats.hdMisses++;
+    return false;
+  }
+  // "Sharpness: Half" takes the next smaller level, but never one smaller than the game's own texture (decision of the
+  // project owner, 12.11.2026): then the level that is still at least its size
+  unsigned first = std::min<unsigned>(texPackLevel, e->levels - 1u);
+  while (first > 0 && (std::max(1u, static_cast<unsigned>(e->width) >> first) < t.width ||
+                       std::max(1u, static_cast<unsigned>(e->height) >> first) < t.height))
+    first--;
+  unsigned w = 0, h = 0;
+  const std::size_t need = LevelsBytes(*e, first, &w, &h);
+  const std::uint64_t key = static_cast<std::uint64_t>(t.keyHi) << 32 | t.keyLo;
+  if (hdLoader && hdWaiting.count(key))
+    return false;  // asked for already: the game's own texture until it is read
+  if (hdBytes + hdReserved + need > texPackBudget) {
+    stats.hdOverBudget++;
+    return false;
+  }
+  // T4 (0.99.18): read in the background, the game's own texture until then (ApplyHd puts the replacement in its place)
+  if (hdLoader) {
+    HdWait wait;
+    wait.ticket = ++hdTicket;
+    wait.reserved = need;
+    wait.since = Clock::now();
+    hdWaiting[key] = wait;
+    hdReserved += need;
+    TexLoader::Job job;
+    job.key = key;
+    job.ticket = wait.ticket;
+    job.entry = *e;
+    job.first = first;
+    hdLoader->Add(job);
+    stats.hdQueued++;
+    stats.hdWaitingNow = hdWaiting.size();
+    return false;
+  }
+  if (!texPack->Read(*e, first, hdData)) {
+    stats.hdReadErrors++;
+    return false;
+  }
+  const Clock::time_point t2 = Clock::now();
+  stats.hdReadUs += us(t1, t2);
+  stats.loadUs += us(t1, t2);
+  if (!PutHd(*e, first, t.width, t.height, hdData, tex))
+    return false;
+  stats.hdTextures++;
+  return true;
+}
+
+bool GxCore::PutHd(const c4tex::Entry &e, unsigned first, unsigned gameW, unsigned gameH,
+                   const std::vector<std::uint8_t> &data, Texture &tex) {
+  using Clock = std::chrono::steady_clock;
+  const Clock::time_point t0 = Clock::now();
+  unsigned w = 0, h = 0;
+  const std::size_t need = LevelsBytes(e, first, &w, &h);
+  if (data.size() < need)
+    return false;
+  const unsigned levels = e.levels - first;
+  std::size_t gpuBytes = need;
+  unsigned id = BeginCompressed(e.encoding, w, h, levels);
+  if (id) {
+    std::size_t at = 0;
+    unsigned lw = w, lh = h;
+    for (unsigned l = 0; l < levels; l++) {
+      const std::size_t b = c4tex::LevelBytes(e.encoding, lw, lh);
+      CompressedLevel(id, l, lw, lh, data.data() + at, b);
+      at += b;
+      lw = std::max(1u, lw / 2);
+      lh = std::max(1u, lh / 2);
+    }
+  } else {
+    // the API cannot take ETC2 here (a Vulkan device without it, lavapipe in the tests): the levels decoded to RGBA8,
+    // four to eight times the memory
+    static bool logged = false;
+    if (!logged) {
+      logged = true;
+      GXLOG("texture pack: no ETC2 textures in this API on this device, the replacements are decoded (RGBA8)");
+    }
+    gpuBytes = 0;
+    for (unsigned l = 0, lw = w, lh = h; l < levels; l++, lw = std::max(1u, lw / 2), lh = std::max(1u, lh / 2))
+      gpuBytes += static_cast<std::size_t>(lw) * lh * 4;
+    if (hdBytes + hdReserved + gpuBytes > texPackBudget) {
+      stats.hdOverBudget++;
+      return false;
+    }
+    id = BeginTexture(w, h, levels);
+    if (!id)
+      return false;
+    std::size_t at = 0;
+    unsigned lw = w, lh = h;
+    for (unsigned l = 0; l < levels; l++) {
+      decoded.resize(static_cast<std::size_t>(lw) * lh * 4);
+      etc2::DecodeLevel(static_cast<etc2::Kind>(e.encoding), data.data() + at, lw, lh, decoded.data());
+      TextureLevel(id, l, lw, lh, decoded.data());
+      at += c4tex::LevelBytes(e.encoding, lw, lh);
+      lw = std::max(1u, lw / 2);
+      lh = std::max(1u, lh / 2);
+    }
+  }
+  EndTexture(id, levels);
+  {
+    const std::uint64_t up = static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(Clock::now() - t0).count());
+    stats.hdUploadUs += up;
+    stats.loadUs += up;
+  }
+  tex.id = id;
+  tex.width = gameW;
+  tex.height = gameH;
+  tex.levels = levels;
+  // how many levels finer than the game's texture (the sampler's levels move by it)
+  const float sx = static_cast<float>(w) / static_cast<float>(gameW ? gameW : 1);
+  const float sy = static_cast<float>(h) / static_cast<float>(gameH ? gameH : 1);
+  tex.lodShift = std::max(0.0f, std::log2(std::max(sx, sy)));
+  tex.hdBytes = static_cast<std::uint32_t>(gpuBytes);
+  static const bool logKeys = std::getenv("RE4_TEX_PACK_LOG") && *std::getenv("RE4_TEX_PACK_LOG") == '1';
+  if (logKeys)
+    GXLOG("texture pack: the game's %ux%u shown as %ux%u (the pack's level %u of %ux%u)", gameW, gameH, w, h, first,
+          static_cast<unsigned>(e.width), static_cast<unsigned>(e.height));
+  return true;
+}
+
+GxSamplerDesc GxCore::SamplerFor(std::uint32_t mode0, std::uint32_t mode1, unsigned levels, bool point,
+                                 float lodShift) const {
   GxSamplerDesc s;
   static const std::uint8_t wrap[4] = {0, 1, 2, 1};  // clamp, repeat, mirror, (repeat)
   s.wrapS = wrap[mode0 & 3];
@@ -2726,6 +3104,25 @@ GxSamplerDesc GxCore::SamplerFor(std::uint32_t mode0, std::uint32_t mode1, unsig
   s.anisotropy = anisotropy > 1.0f && levels > 1 && ((mode0 >> 4) & 1) && minFilter >= 5 && minFilter <= 6 && !point
                      ? anisotropy
                      : 1.0f;
+  if (lodShift > 0.0f && levels > 1 && !point) {
+    // an HD replacement, lodShift levels finer than the game's texture, with a full chain of its own: the game's
+    // level limits move by it (a minimum above 0 is the game's wish for a blur), and a texture the game shows
+    // without mipmaps goes through the replacement's levels down to the game's size (sharp up close, no
+    // shimmering far away, never blurrier than the original)
+    const bool gameMips = mip[minFilter] != 0;
+    s.minLinear = minLinear[minFilter];
+    if (gameMips) {
+      s.mip = mip[minFilter];
+      s.maxLod += lodShift;
+      if (s.minLod > 0.0f)
+        s.minLod += lodShift;
+    } else {
+      s.mip = s.minLinear ? 2 : 1;
+      s.minLod = 0.0f;
+      s.maxLod = lodShift;
+    }
+    s.anisotropy = anisotropy > 1.0f && ((mode0 >> 4) & 1) && s.minLinear ? anisotropy : 1.0f;
+  }
   return s;
 }
 

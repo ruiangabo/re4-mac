@@ -2,20 +2,20 @@
 
 # CubeEvil4
 
-> **macOS (Apple Silicon) fork:** an experimental hybrid port (native arm64 front end + game core under Rosetta 2) lives in this fork. See [MACOS.md](MACOS.md). Everything below is the upstream Android README.
-
 ![Beta](https://img.shields.io/badge/Status-Beta-E67E22)
 ![Android 7.0+](https://img.shields.io/badge/Android-7.0%2B-3DDC84?logo=android&logoColor=white)
 ![ARM 32/64-bit](https://img.shields.io/badge/ARM-32%2F64--bit-0091BD?logo=arm&logoColor=white)
-![OpenGL ES 3.0+](https://img.shields.io/badge/OpenGL%20ES-3.0%2B-5586A4?logo=opengl&logoColor=white)
-![Vulkan](https://img.shields.io/badge/Vulkan-AC162C?logo=vulkan&logoColor=white)
+![API](https://img.shields.io/badge/API-OpenGL%20ES%203.0%2B%20/%20Vulkan-5586A4?logo=api&logoColor=white)
 ![Input](https://img.shields.io/badge/Input-Touch%2FGamepad%2FKeyb%2BMouse-9A1B1C)
 
 
 [![Join The Lair on Discord](https://img.shields.io/badge/Discord-The%20Lair-5865F2?logo=discord&logoColor=white)](https://discord.gg/AB3WVBqD5G)
 
-**[REQUIREMENTS](#requirements) | [STATUS](#status) | [HOW TO USE](#how-to-use) | [DISCORD](https://discord.gg/AB3WVBqD5G) | [WIKI](https://github.com/Andiweli/CubeEvil4-Android/wiki) | [BETA RELEASE](https://github.com/Andiweli/CubeEvil4-Android/releases)**
+**[REQUIREMENTS](#requirements) | [HOW TO](#how-to-use) | [WIKI](https://github.com/Andiweli/CubeEvil4-Android/wiki) | [RELEASES](https://github.com/Andiweli/CubeEvil4-Android/releases)**
 
+> [!NOTE]
+> There is also a fork that is more focused on modding the hell out of the game.  
+> [Manuk Bulan's fork of CubeEvil4](https://github.com/manuk-bulan/Manuk-CubeEvil4-Android) is for you in case you want to mod the game more than my port.
 
 **CubeEvil4** is a non-commercial hobby project: an unofficial fan port that lets you play your own
 copy of the GameCube version of Resident Evil 4 natively on Android. It does not recreate the game;
@@ -66,14 +66,18 @@ If you do not own the game, please buy it: the remake (see above) or one of the 
   middleware with picture and ADX sound.
 - Releases: the European retail release (`G4BP08`) with its five languages, chosen in the app menu
   (default: your phone's language), the US retail release (`G4BE08`, English) and the Japanese retail
-  release (`G4BJ08`, in Japanese; the Korean fan translation in Korean). All use the same memory card.
+  release (`G4BJ08`, in Japanese). All use the same memory card.
 - Memory card as a file inside the app, with `.gci` import and export (Dolphin, GameCube); imports also
   take a whole Dolphin card (`.raw`, `.gcp`), a ZIP file and European saves.
 - Controller like the GameCube pad, with vibration, or a second layout (Alternate Controls,
   aiming with the right stick); touch controls when no controller is connected, with touch in the
   inventory; comfort controls: gyro aiming, knife by swipe, latching L, R and B; with a controller,
   X, Y, L1, R1, L3 and R3 can take other functions (Controller Configuration).
-  SELECT opens the app menu (graphics, sound, controls, performance, cheats, memory card, error report).
+  SELECT opens the app menu (graphics, sound, controls, performance, cheats & mods, memory card, error
+  report).
+- Optional HD textures: the app can load a texture pack in the Dolphin format that you obtained yourself,
+  after converting it on a PC or with the Android packer app (see "HD texture packs" below). CubeEvil4
+  includes no textures.
 - Android 7.0 or later, OpenGL ES 3.0.
 
 ## Requirements
@@ -82,7 +86,7 @@ If you do not own the game, please buy it: the remake (see above) or one of the 
 
 | Class | SoC | GPU | Suitability |
 |:-----:|-----|-----|-------------|
-| **A** | Snapdragon 8 Elite Gen 6 / Extreme Gen 6 | Adreno 845 (and Extreme variant) | Remake-level, high resolution, ray tracing experiments |
+| **A** | Snapdragon 8 Elite Gen 6 / Extreme Gen 6 | Adreno 845 (and Extreme variant) | Remake-level, high resolution |
 | **A** | Snapdragon 8 Elite Gen 5 | Adreno 840 | as above, currently widespread |
 | **A** | Snapdragon 8 Elite (Gen 1) | Adreno 830 | as above |
 | **A** | MediaTek Dimensity 9500 / 9600 Pro | Mali-G1 Ultra | as above, driver testing required |
@@ -199,6 +203,35 @@ in the GameCube's colours, as before); the switch takes effect at once and keeps
   latched: Leon keeps running).
 
 The controller (or the device) vibrates where the game uses the rumble, if it can.
+
+**HD texture packs (optional)** (app menu → Cheats & Mods → Mods)
+
+CubeEvil4 can replace the game's textures with sharper ones from a texture pack in the Dolphin format
+(`tex1_<width>x<height>_<hash>_<format>.dds/.png/.jpg`), as Dolphin does. **CubeEvil4 includes no textures,
+offers none and links to none.** Use only packs you obtained yourself and may use. The packer reads DDS (BC1, BC2,
+BC3, BC4, BC5, BC7 and uncompressed; not BC6H), PNG and JPG (baseline and progressive; not CMYK). When a pack has the
+same texture as several files, it takes the DDS, then the PNG, then the JPG.
+
+1. Convert the pack with the **CubeEvil4 Texture Packer**, on a Windows PC or on the device itself:
+   - **Windows:** `CubeEvil4-TexturePacker.exe` (a file of its own on the release page, no installation;
+     source in `port/tools/texpack`). Double-click it, drag the pack's folder or its ZIP file into its window
+     (or choose it there) and pick the size: 256 (about 0.27 GB for a full pack, saves memory on weak phones),
+     512 (recommended, about 0.72 GB) or 1024 (about 2.3 GB, for strong devices). Then choose where to save the
+     file; the window shows what it is doing and, at the end, a summary.
+     `CubeEvil4-TexturePacker-Console.exe` does the same on the command line.
+   - **Android:** the app **CubeEvil4 Texture Packer** (an APK of its own on the release page, Android 7 and
+     later; source in `port/android-decomp/packer`). Choose the pack's ZIP file or folder, the size and the
+     storage; it shows the file's size and about how long it takes on this device (a phone needs far longer
+     than a PC: keep it on the charger). The ZIP is read as it is, nothing is unpacked; the finished file goes
+     into the Download folder, then "Import into CubeEvil4" hands it over.
+
+   No image becomes smaller than the game's own texture. Both make the same file,
+   `CubeEvil4-textures-512.c4tex`, and never change the pack.
+2. Import the `.c4tex` file in the app menu (Cheats & Mods → Import texture pack), or with the Android
+   packer's button. The app keeps it in a folder of its own; it never touches your discs, saves or memory
+   cards. Afterwards you can delete the file in Download or the copy you made.
+3. Switch the HD textures on or off at any time, choose "Sharpness: Half" on weaker devices, or delete the
+   pack. Textures the pack does not have, and pictures the game makes itself, stay as they are.
 
 ## Building the app
 
@@ -340,6 +373,9 @@ is that the output bytes never change.
   preservation only.
 - **No game data.** No game data, disc images, BIOS or other copyrighted assets are included or
   distributed. You need your own legally obtained copy of the game.
+- **No texture packs.** CubeEvil4 includes no replacement textures and links to none. Its texture loader
+  and the CubeEvil4 Texture Packer only read packs you converted yourself from material you obtained
+  yourself, as in Dolphin. Texture packs are the work of their authors; they are not part of this project.
 - **No warranty.** The app is provided "as is", without any warranty. Use it at your own risk.
 - **Our own work.** The build scripts, tools, Android app shell, configuration and documentation
   written for this project are released under CC0, see `LICENSE`. This does not extend to any

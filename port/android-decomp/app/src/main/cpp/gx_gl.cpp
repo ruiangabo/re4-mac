@@ -1257,13 +1257,16 @@ struct GlRenderer final : GxCore {
   // --- textures ----------------------------------------------------------------
 
   // point: the PSone demake's 3D textures, every texel a hard square (the PlayStation filtered nothing)
-  GLuint Sampler(std::uint32_t mode0, std::uint32_t mode1, unsigned levels, bool point = false) {
+  // lodShift: an HD replacement's (Bound::lodShift), in sixteenths in the key
+  GLuint Sampler(std::uint32_t mode0, std::uint32_t mode1, unsigned levels, bool point = false, float lodShift = 0.0f) {
+    const std::uint64_t shift16 = static_cast<std::uint64_t>(std::lround(std::min(15.0f, lodShift) * 16.0f)) & 0xFF;
     const std::uint64_t key = (static_cast<std::uint64_t>(mode1 & 0xFFFF) << 32) | (mode0 & 0x1FF) |
-                              (static_cast<std::uint64_t>(levels > 1) << 48) | (static_cast<std::uint64_t>(point) << 49);
+                              (static_cast<std::uint64_t>(levels > 1) << 48) | (static_cast<std::uint64_t>(point) << 49) |
+                              shift16 << 50;
     auto it = samplers.find(key);
     if (it != samplers.end())
       return it->second;
-    const GxSamplerDesc d = SamplerFor(mode0, mode1, levels, point);
+    const GxSamplerDesc d = SamplerFor(mode0, mode1, levels, point, static_cast<float>(shift16) / 16.0f);
     GLuint s = 0;
     glGenSamplers(1, &s);
     static const GLenum wrap[3] = {GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT};
@@ -1449,6 +1452,8 @@ struct GlRenderer final : GxCore {
     const std::size_t cap = merged ? maxMerged : maxPrograms;
     if (map.size() >= cap)
       EvictPrograms(map, cap * 3 / 4);
+    // (made now, on the render thread: loading for "Dynamic", GxStats::loadUs)
+    const auto madeAt = std::chrono::steady_clock::now();
     Program p;
     std::string log;
     const std::string vs = merged ? GxMergedVertexShader(k) : GxVertexShader(k), fs = GxFragmentShader(k);
@@ -1502,6 +1507,8 @@ struct GlRenderer final : GxCore {
     auto &slot = map[k];
     slot = p;
     stats.programsLive = static_cast<unsigned>(programs.size() + mergedPrograms.size());
+    stats.loadUs += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - madeAt).count());
     return slot.id ? &slot : nullptr;
   }
 
@@ -1600,7 +1607,7 @@ struct GlRenderer final : GxCore {
         stats.textureBinds++;
       }
       const std::uint32_t mode0 = bp[(m < 4 ? 0x80 : 0xA0) + (m & 3)], mode1 = bp[(m < 4 ? 0x84 : 0xA4) + (m & 3)];
-      const GLuint sampler = Sampler(mode0, mode1, bound[m].levels, (k.centroid & 2) != 0);
+      const GLuint sampler = Sampler(mode0, mode1, bound[m].levels, (k.centroid & 2) != 0, bound[m].lodShift);
       if (unitSampler[m] != sampler) {
         glBindSampler(static_cast<GLuint>(m), sampler);
         unitSampler[m] = sampler;
@@ -2221,6 +2228,161 @@ struct GlRenderer final : GxCore {
     current = nullptr;
   }
 
+  // --- bloom (0.99.13; GxCore::BloomPass, gx_fixed_shaders.h kBloom*) ------------------------------------------
+
+  GLuint bloomKey = 0, bloomPick = 0, bloomBlur = 0, bloomAdd = 0;
+  GLint bloomKeyRegion = -1, bloomKeyPick = -1, bloomKeyKeep = -1, bloomPickRegion = -1, bloomPickSize = -1,
+        bloomPickKeep = -1, bloomPickHalo = -1, bloomBlurDir = -1, bloomAddRegion = -1, bloomAddSize = -1,
+        bloomAddGlow = -1;
+  // [0] the pick and the wide glow, [1] the blurs' half way, [2] the narrow glow (0.99.14); the key (1 x 1)
+  GLuint bloomTex[3] = {0, 0, 0}, bloomKeyTex = 0;
+  int bloomW[3] = {0, 0, 0}, bloomH[3] = {0, 0, 0}, bloomKeyW = 0, bloomKeyH = 0;
+
+  bool MakeBloom() {
+    std::string log;
+    bloomKey = Link(fixed::kQuadVs, fixed::kBloomKeyFs, &log);
+    bloomPick = bloomKey ? Link(fixed::kQuadVs, fixed::kBloomPickFs, &log) : 0;
+    bloomBlur = bloomPick ? Link(fixed::kQuadVs, fixed::kBloomBlurFs, &log) : 0;
+    bloomAdd = bloomBlur ? Link(fixed::kQuadVs, fixed::kBloomAddFs, &log) : 0;
+    if (!bloomAdd) {
+      GXLOG("bloom: shader failed: %s", log.c_str());
+      BloomRelease();
+      return false;
+    }
+    glUseProgram(bloomKey);
+    glUniform1i(glGetUniformLocation(bloomKey, "src"), 0);
+    bloomKeyRegion = glGetUniformLocation(bloomKey, "region");
+    bloomKeyPick = glGetUniformLocation(bloomKey, "pick");
+    bloomKeyKeep = glGetUniformLocation(bloomKey, "keep");
+    glUseProgram(bloomPick);
+    glUniform1i(glGetUniformLocation(bloomPick, "src"), 0);
+    glUniform1i(glGetUniformLocation(bloomPick, "key"), 1);
+    bloomPickRegion = glGetUniformLocation(bloomPick, "region");
+    bloomPickSize = glGetUniformLocation(bloomPick, "size");
+    bloomPickKeep = glGetUniformLocation(bloomPick, "keep");
+    bloomPickHalo = glGetUniformLocation(bloomPick, "halo");
+    glUseProgram(bloomBlur);
+    glUniform1i(glGetUniformLocation(bloomBlur, "src"), 0);
+    bloomBlurDir = glGetUniformLocation(bloomBlur, "dir");
+    glUseProgram(bloomAdd);
+    glUniform1i(glGetUniformLocation(bloomAdd, "bloom"), 0);
+    glUniform1i(glGetUniformLocation(bloomAdd, "core"), 1);
+    bloomAddRegion = glGetUniformLocation(bloomAdd, "region");
+    bloomAddSize = glGetUniformLocation(bloomAdd, "size");
+    bloomAddGlow = glGetUniformLocation(bloomAdd, "glow");
+    return true;
+  }
+
+  // After the scene's last 3D draw (Run): the scene's key (bloomKeyTex), its bright parts into bloomTex[0] (one texel
+  // per 2 x `halves` EFB texels each way: 4 x 4 game pixels), blurred (the narrow glow after the first pair in
+  // bloomTex[2], the wide one in bloomTex[0]), both added into the EFB's colour over the scene's part.
+  void BloomPass() override {
+    int region[4];
+    if (bloomFailed || !BloomRegion(region))
+      return;
+    Touched();
+    if (!bloomAdd && !MakeBloom()) {
+      bloomFailed = true;  // off for good on this driver (the menu's choice stays)
+      BindFbo(DrawFbo());
+      return;
+    }
+    const BloomLook &look = BloomLookOf(bloomLevel);
+    const int f = 2 * std::max(1, halves);  // a texel per 4 x 4 game pixels (halves: texels per 2 game pixels)
+    const int taps = std::min(f, 4);
+    const int bw = (region[2] + f - 1) / f, bh = (region[3] + f - 1) / f;
+    // (the PC check, RE4_GX_BLOOM_TIME=1: the passes' time with glFinish before and after, into the log)
+    static const bool timed = std::getenv("RE4_GX_BLOOM_TIME") && *std::getenv("RE4_GX_BLOOM_TIME") == '1';
+    if (timed)
+      glFinish();
+    const auto timedFrom = std::chrono::steady_clock::now();
+    // the scene's colour (MSAA in own buffers: resolved), as the lens flares read it
+    Resolve(region[0], region[1], region[2], region[3], false);
+    for (int i = 0; i < 3; i++)
+      PassTexture(&bloomTex[i], &bloomW[i], &bloomH[i], bw, bh);
+    PassTexture(&bloomKeyTex, &bloomKeyW, &bloomKeyH, 1, 1);
+    // the scene's key: the threshold and the budget's scale (kBloomKeyFs)
+    glUseProgram(bloomKey);
+    glUniform4f(bloomKeyRegion, float(region[0]), float(region[1]), float(region[2]), float(region[3]));
+    glUniform4f(bloomKeyPick, look.base, look.slope, look.lo, look.hi);
+    glUniform4f(bloomKeyKeep, look.keepMax, look.cap, look.least, look.power);
+    FilterDraw(bloomKey, bloomKeyTex, 1, 1, efbColor);
+    float halos[8][4];
+    BloomHalos(halos);
+    glUseProgram(bloomPick);
+    glUniform4f(bloomPickRegion, float(region[0]), float(region[1]), float(region[2]), float(region[3]));
+    glUniform4f(bloomPickSize, float(bw), float(bh), float(f), float(taps));
+    glUniform4f(bloomPickKeep, look.keepMax, look.cap, look.least, look.power);
+    glUniform4fv(bloomPickHalo, 8, &halos[0][0]);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, bloomKeyTex);
+    glBindSampler(1, 0);
+    FilterDraw(bloomPick, bloomTex[0], bw, bh, efbColor);
+    // the first pair into bloomTex[2] (the narrow glow, kept), the others from there into bloomTex[0] (the wide one)
+    for (int b = 0; b < look.blurs; b++) {
+      const float spread = BloomLook::Spread(b);
+      glUseProgram(bloomBlur);
+      glUniform4f(bloomBlurDir, spread / float(bw), 0.0f, float(bw), float(bh));
+      FilterDraw(bloomBlur, bloomTex[1], bw, bh, b == 0 ? bloomTex[0] : b == 1 ? bloomTex[2] : bloomTex[0]);
+      glUseProgram(bloomBlur);
+      glUniform4f(bloomBlurDir, 0.0f, spread / float(bh), float(bw), float(bh));
+      FilterDraw(bloomBlur, b == 0 ? bloomTex[2] : bloomTex[0], bw, bh, bloomTex[1]);
+    }
+    const GLuint wide = look.blurs >= 2 ? bloomTex[0] : bloomTex[2];
+    // added into the EFB (its colour; MSAA: the multisampled one, as the lens flares)
+    SaveAndPlainState();
+    glDepthMask(GL_FALSE);
+    BindFbo(DrawFbo());
+    glViewport(0, 0, Lo(kEfbWidth), Lo(kEfbHeight));
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(region[0], region[1], region[2], region[3]);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendEquation(GL_FUNC_ADD);
+    glUseProgram(bloomAdd);
+    glUniform4f(bloomAddRegion, float(region[0]), float(region[1]), float(region[2]), float(region[3]));
+    glUniform4f(bloomAddSize, float(bw), float(bh), float(f), look.strength);
+    glUniform4f(bloomAddGlow, look.core, 0.0f, 0.0f, 0.0f);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_COLOR);  // a screen (kBloomAddFs)
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, bloomTex[2]);
+    glBindSampler(1, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, wide);
+    glBindSampler(0, 0);
+    glBindVertexArray(quadVao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glDisable(GL_BLEND);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glDepthMask(GL_TRUE);
+    current = nullptr;
+    Touched();
+    stats.bloomPasses++;
+    if (timed) {
+      glFinish();
+      GXLOG("bloom: %.2f ms (with glFinish), the scene %d x %d texels, the bloom's picture %d x %d, level %d",
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - timedFrom).count(), region[2],
+            region[3], bw, bh, bloomLevel);
+    }
+  }
+
+  void BloomRelease() {
+    for (GLuint *prog : {&bloomKey, &bloomPick, &bloomBlur, &bloomAdd})
+      if (*prog)
+        glDeleteProgram(*prog);
+    bloomKey = bloomPick = bloomBlur = bloomAdd = 0;
+    for (int i = 0; i < 3; i++) {
+      if (bloomTex[i])
+        glDeleteTextures(1, &bloomTex[i]);
+      bloomTex[i] = 0;
+      bloomW[i] = bloomH[i] = 0;
+    }
+    if (bloomKeyTex)
+      glDeleteTextures(1, &bloomKeyTex);
+    bloomKeyTex = 0;
+    bloomKeyW = bloomKeyH = 0;
+  }
+
   void FlareRelease() {
     if (flareVisFbo[0])
       glDeleteFramebuffers(2, flareVisFbo);
@@ -2830,6 +2992,25 @@ struct GlRenderer final : GxCore {
   void EndTexture(unsigned, unsigned levels) override {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(levels - 1));
   }
+  // an HD replacement (GxCore::UploadHd): ETC2 / EAC levels as they are (OpenGL ES 3 always has them)
+  GLenum compressedFormat = 0;
+  unsigned BeginCompressed(unsigned encoding, unsigned, unsigned, unsigned) override {
+    static const GLenum formats[4] = {0, GL_COMPRESSED_RGB8_ETC2, GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2,
+                                      GL_COMPRESSED_RGBA8_ETC2_EAC};
+    if (encoding < 1 || encoding > 3)
+      return 0;
+    Touched(); // binds the new texture
+    compressedFormat = formats[encoding];
+    GLuint id = 0;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D, id);
+    return id;
+  }
+  void CompressedLevel(unsigned, unsigned level, unsigned w, unsigned h, const std::uint8_t *data,
+                       std::size_t bytes) override {
+    glCompressedTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), compressedFormat, static_cast<GLsizei>(w),
+                           static_cast<GLsizei>(h), 0, static_cast<GLsizei>(bytes), data);
+  }
   // the clear after a copy (GxCore::ClearAfterCopy)
   void ClearRect(const GxClearRect &r) override {
     glEnable(GL_SCISSOR_TEST);
@@ -3011,6 +3192,9 @@ void GlRenderer::ApplyTestEnvironment() {
   flaresOn = flares && *flares == '1';
   const char *halos = getenv("RE4_GX_FLARE_HALOS");  // 0: the lens flares without the halos (gx_chunk_render, tests)
   flareHalos = !(halos && *halos == '0');
+  const char *bloom = getenv("RE4_GX_BLOOM");  // 1 light, 2 strong: the bloom from the start (gx_chunk_render, tests)
+  if (bloom && (*bloom == '1' || *bloom == '2'))
+    bloomLevel = *bloom - '0';
   if (const char *limit = getenv("RE4_GX_MAX_PROGRAMS")) {
     const long n = std::strtol(limit, nullptr, 10);
     if (n >= 4) {
@@ -3593,6 +3777,7 @@ void GlRenderer::Release() {
   m.PsxRelease();
   m.CrtRelease();
   m.FlareRelease();
+  m.BloomRelease();
   if (m.timerOn) {
     glDeleteQueries(GlRenderer::TimerPool::kQueries, m.chunkTimer.query);
     glDeleteQueries(GlRenderer::TimerPool::kQueries, m.presentTimer.query);
