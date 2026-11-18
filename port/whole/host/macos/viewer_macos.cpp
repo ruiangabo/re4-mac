@@ -61,6 +61,13 @@ struct Settings {
     int mouseSens = 100;      // 25..400 %
     // audio
     int music = 100, effectsVol = 100;
+    // cheats and game options: the core keeps them (RE4_CHEATS bits, runtime/cheats.cpp)
+    bool cheatHealth = false, cheatAmmo = false, cheatOneHit = false, cheatQte = false, cheatInvisible = false,
+         cheatExtras = false;
+    bool itemRandom = false; int itemSeed = 1;     // random items (rooms loaded from then on), seed 1..0xFFFFF
+    bool enemyRandom = false; int enemySeed = 1;   // random enemies (from the next room on)
+    bool gentleQte = false;                        // Professional's quick-time events as Normal's
+    int character = 0;                             // the story's player: 0 Leon, 2 Ada, 3 HUNK, 4 Krauser, 5 Wesker
 };
 
 static unsigned g_texCount = 0;
@@ -76,7 +83,9 @@ static std::string settingsPath() {
 #define RE4_SETTINGS_FIELDS(X) \
     X(fullscreen) X(vsync) X(smooth) X(scale) X(format) X(fov) X(samples) X(anisotropy) X(fxaa) X(sharpen) X(dof) \
     X(flares) X(viewDistance) X(effects) X(tvFilter) X(crt) X(colour) X(laser) X(psButtons) X(hdTextures) X(hdMaxSize) X(preset) X(invertY) X(autoAim) \
-    X(alwaysRun) X(aimSpeed) X(rumble) X(mouseSens) X(music) X(effectsVol)
+    X(alwaysRun) X(aimSpeed) X(rumble) X(mouseSens) X(music) X(effectsVol) \
+    X(cheatHealth) X(cheatAmmo) X(cheatOneHit) X(cheatQte) X(cheatInvisible) X(cheatExtras) X(itemRandom) X(itemSeed) \
+    X(enemyRandom) X(enemySeed) X(gentleQte) X(character)
 
 static void setField(int& f, int v) { f = v; }
 static void setField(bool& f, int v) { f = v != 0; }
@@ -96,6 +105,9 @@ static void loadSettings(Settings& s) {
     s.scale = SDL_clamp(s.scale, 1, 6);
     s.aimSpeed = SDL_clamp(s.aimSpeed, 50, 300);
     s.mouseSens = SDL_clamp(s.mouseSens, 25, 400);
+    s.itemSeed = SDL_clamp(s.itemSeed, 1, 0xFFFFF);
+    s.enemySeed = SDL_clamp(s.enemySeed, 1, 0xFFFFF);
+    if (s.character < 2 || s.character > 5) s.character = 0;
 }
 
 static void saveSettings(const Settings& s) {
@@ -115,6 +127,14 @@ static void sendCoreSettings(const Settings& s) {
     re4ipc_set_aim((s.invertY ? 1 : 0) | (s.autoAim ? 2 : 0) | (s.alwaysRun ? 4 : 0) | (s.aimSpeed << 8));
     re4ipc_set_sound_volume(SDL_clamp(s.music, 0, 100) | SDL_clamp(s.effectsVol, 0, 100) << 8);
     re4ipc_set_laser_colour(s.laser);
+    // the cheat switches (runtime/cheats.cpp): 1 health, 2 ammo, 4 one-hit kill, 8 automatic QTEs, 16 extra games kept
+    // unlocked, bits 5..7 the story's player (pl_type), 512 invisibility, 1024 random items with the seed in bits 11..30
+    int bits = (s.cheatHealth ? 1 : 0) | (s.cheatAmmo ? 2 : 0) | (s.cheatOneHit ? 4 : 0) | (s.cheatQte ? 8 : 0) |
+               (s.cheatExtras ? 16 : 0) | (s.character << 5) | (s.cheatInvisible ? 512 : 0);
+    if (s.itemRandom) bits |= 1024 | (s.itemSeed & 0xFFFFF) << 11;
+    re4ipc_set_cheats(bits);
+    re4ipc_set_enemy_random(s.enemyRandom ? s.enemySeed : 0);
+    re4ipc_set_gentle_qte(s.gentleQte ? 1 : 0);
 }
 
 // What the renderer is told (cheap setters, after every Init and on change).
@@ -495,6 +515,79 @@ static MenuResult drawMenu(Settings& s, int maxSamples, const char* gpuInfo) {
                 "Shift correr  ·  E / Espacio acción  ·  R recargar  ·  C / V cuchillo  ·  Q Ashley\n"
                 "Tab / I inventario  ·  M mapa  ·  Enter / P opciones  ·  flechas cruceta\n"
                 "Esc este menú  ·  F pantalla completa");
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Trucos y mods")) {
+            ImGui::BeginChild("c", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 1.6f));
+            static std::string msg;
+            static bool askRestart = false;
+            ImGui::SeparatorText("Personaje de la campaña");
+            {
+                static const char* n[] = {"Leon (original)", "Ada", "HUNK", "Krauser", "Wesker"};
+                static const int v[] = {0, 2, 3, 4, 5};
+                row("Jugar la historia con"); if (comboInt("##char", &s.character, n, v, 5)) r.core = true;
+                hint("Se aplica al cargar la siguiente sala (la sala actual se reinicia donde estás). Solo en la historia: "
+                     "no en la parte de Ashley, Assignment Ada ni The Mercenaries. El guardado siempre es de Leon.");
+            }
+            ImGui::TextDisabled("Se aplica al cargar la siguiente sala. Solo en la historia.");
+            ImGui::SeparatorText("Trucos");
+            row("Salud infinita"); if (ImGui::Checkbox("##th", &s.cheatHealth)) r.core = true;
+            row("Munición infinita"); if (ImGui::Checkbox("##ta", &s.cheatAmmo)) r.core = true;
+            row("Muerte de un golpe"); if (ImGui::Checkbox("##to", &s.cheatOneHit)) r.core = true;
+            row("QTE automáticos"); if (ImGui::Checkbox("##tq", &s.cheatQte)) r.core = true;
+            hint("Cada prompt de quick-time event se responde solo, sin pulsar nada.");
+            row("Invisible para los enemigos"); if (ImGui::Checkbox("##ti", &s.cheatInvisible)) r.core = true;
+            row("Extras siempre desbloqueados"); if (ImGui::Checkbox("##te", &s.cheatExtras)) r.core = true;
+            ImGui::SeparatorText("Aleatorizadores");
+            row("Objetos aleatorios"); if (ImGui::Checkbox("##ri", &s.itemRandom)) r.core = true;
+            hint("Reparte de nuevo los objetos sueltos de cada sala (solo en la historia; a partir de las salas que se carguen).");
+            row("Enemigos aleatorios"); if (ImGui::Checkbox("##re", &s.enemyRandom)) r.core = true;
+            hint("Cambia qué enemigos aparecen en cada sala (más o menos un 10 %). Los importantes para la historia se quedan. "
+                 "Se aplica desde la siguiente sala.");
+            row("Semilla (nueva al pulsar)");
+            if (ImGui::Button("Nueva semilla", ImVec2(-1, 0))) {
+                s.itemSeed = 1 + (int) (SDL_rand_bits() % 0xFFFFF);
+                s.enemySeed = 1 + (int) (SDL_rand_bits() % 0xFFFFF);
+                r.core = true;
+            }
+            ImGui::SeparatorText("Dificultad");
+            row("QTE más suaves (Professional)"); if (ImGui::Checkbox("##gq", &s.gentleQte)) r.core = true;
+            hint("En Professional, los QTE usan los tiempos y el número de pulsaciones de Normal. El daño y los enemigos "
+                 "siguen siendo de Professional.");
+            ImGui::SeparatorText("Una vez (cambian lo que guardas; solo con Leon, dentro de una sala)");
+            {
+                struct Gift { int what; const char* label; };
+                static const Gift gifts[] = {
+                    {1, "Killer7 al máximo"}, {2, "Maletín L"}, {3, "+1.000.000 ptas"}, {5, "Handcannon"},
+                    {6, "Chicago Typewriter"}, {7, "Lanzacohetes infinito"}, {8, "Mine Thrower"}, {9, "Matilda"}};
+                const float w = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 3) / 4.0f;
+                for (int i = 0; i < 8; i++) {
+                    if (i % 4) ImGui::SameLine();
+                    if (ImGui::Button(gifts[i].label, ImVec2(w, 0))) {
+                        const int res = re4ipc_cheat_action(gifts[i].what);
+                        msg = res == 1 ? "Hecho." : res == 2 ? "Ya lo tenías." : res == 3 ? "Se hará en el siguiente frame del juego."
+                            : res == -1 ? "No hay sitio libre en el maletín." : "Ahora no se puede (solo Leon, dentro de una sala).";
+                        msg = std::string(gifts[i].label) + ": " + msg;
+                    }
+                }
+                if (ImGui::Button("Desbloquear extras (Assignment Ada, Mercenaries)", ImVec2(-1, 0))) {
+                    const int res = re4ipc_cheat_action(4);
+                    msg = res > 0 ? "Extras desbloqueados." : "Ahora no se puede.";
+                    if (res > 0) askRestart = true;
+                }
+            }
+            if (!msg.empty()) ImGui::TextWrapped("%s", msg.c_str());
+            if (askRestart) { ImGui::OpenPopup("restart?"); askRestart = false; }
+            if (ImGui::BeginPopupModal("restart?", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoTitleBar)) {
+                ImGui::TextUnformatted("Para ver los extras en el menú de título hay que reiniciar el juego.\nLo no guardado se pierde. ¿Reiniciar?");
+                if (ImGui::Button("Reiniciar", ImVec2(160, 0))) { re4ipc_restart_game(0); r.close = true; ImGui::CloseCurrentPopup(); }
+                ImGui::SameLine();
+                if (ImGui::Button("Más tarde", ImVec2(160, 0))) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+            ImGui::SeparatorText("Mods de texturas");
+            ImGui::TextDisabled("Los paquetes HD en formato Dolphin se cargan desde la carpeta 'textures' (ver pestaña Gráficos).");
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
